@@ -1,15 +1,9 @@
-/* 만족도조사 자동 집계 - 현재 제공된 1페이지 양식 기준 */
 const REF_W = 1240;
 const REF_H = 1753;
-
-// PDF.js는 PDF 파일을 브라우저에서 이미지로 바꾸기 위해서만 사용합니다.
-// 인터넷이 차단된 행정망에서는 JPG/PNG 스캔을 사용하거나,
-// README의 안내대로 pdf.min.mjs/pdf.worker.min.mjs를 로컬 파일로 두세요.
 const PDFJS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs';
 const PDFJS_WORKER_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs';
 
 const SCALE_LABELS = ['매우 만족','만족','보통','불만족','매우 불만족'];
-
 const QUESTION_LABELS = {
   q2: [
     '강의에 대한 전반적인 만족도',
@@ -25,8 +19,6 @@ const QUESTION_LABELS = {
   q4: ['취업지원','창업지원','진로설계','자기계발','문화예술','네트워크','기타']
 };
 
-// 좌표는 제공된 빈 설문지(1240 x 1753)를 기준으로 한 고정 영역입니다.
-// 빨간색 강의명/강사명이 바뀌어도 응답 칸의 위치가 같다면 수정할 필요가 없습니다.
 const REGIONS = {
   gender: [
     {label:'남', x1:145, y1:394, x2:275, y2:432},
@@ -53,8 +45,6 @@ const REGIONS = {
 
 let selectedFiles = [];
 let records = [];
-let templateCanvas = null;
-let templateCtx = null;
 let templatePixels = null;
 let pdfjsLib = null;
 
@@ -121,12 +111,11 @@ function setFiles(files){
 
 async function loadTemplate(){
   const img = await loadImage('template.png');
-  templateCanvas = document.createElement('canvas');
-  templateCanvas.width = REF_W;
-  templateCanvas.height = REF_H;
-  templateCtx = templateCanvas.getContext('2d', {willReadFrequently:true});
-  templateCtx.drawImage(img,0,0,REF_W,REF_H);
-  templatePixels = templateCtx.getImageData(0,0,REF_W,REF_H).data;
+  const canvas = document.createElement('canvas');
+  canvas.width = REF_W; canvas.height = REF_H;
+  const ctx = canvas.getContext('2d', {willReadFrequently:true});
+  ctx.drawImage(img,0,0,REF_W,REF_H);
+  templatePixels = ctx.getImageData(0,0,REF_W,REF_H).data;
 }
 
 async function ensurePdfJs(){
@@ -136,12 +125,12 @@ async function ensurePdfJs(){
     pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_CDN;
     return pdfjsLib;
   }catch(err){
-    throw new Error('PDF 분석용 라이브러리를 불러오지 못했습니다. 행정망 등 인터넷이 차단된 환경이면 PDF를 JPG/PNG로 스캔하거나 README의 오프라인 PDF.js 설치 방법을 사용해주세요.');
+    throw new Error('PDF.js를 불러오지 못했습니다. JPG/PNG 스캔을 사용하거나 PDF.js를 로컬 파일로 연결해주세요.');
   }
 }
 
 async function analyzeAll(){
-  if(!templatePixels) return alert('빈 설문지 기준 이미지를 불러오지 못했습니다.');
+  if(!templatePixels) return alert('기준 설문지를 불러오지 못했습니다.');
   records = [];
   showProgress(true);
 
@@ -151,8 +140,7 @@ async function analyzeAll(){
       const pdfPages = await pdfToCanvases(file);
       pdfPages.forEach((p,i) => pages.push({file, page:i+1, canvas:p}));
     }else{
-      const c = await imageFileToCanvas(file);
-      pages.push({file, page:1, canvas:c});
+      pages.push({file, page:1, canvas:await imageFileToCanvas(file)});
     }
   }
 
@@ -162,18 +150,24 @@ async function analyzeAll(){
     const normalized = normalizeCanvas(pages[i].canvas);
     const aligned = alignCanvas(normalized);
     const result = analyzePage(aligned);
+
     result.fileName = pages[i].file.name;
     result.page = pages[i].page;
     result.imageDataUrl = aligned.toDataURL('image/jpeg', .75);
     result.id = `${Date.now()}_${i}`;
+
+    // 신규 수동 입력 필드
+    result.programName = '';
+    result.comment = '';
+
     records.push(result);
   }
 
   updateProgress(pages.length,pages.length,'분석 완료');
-  setTimeout(()=>showProgress(false),600);
+  setTimeout(()=>showProgress(false),500);
   renderResults();
   renderReview();
-  switchView('result');
+  switchView('review');
 }
 
 async function pdfToCanvases(file){
@@ -184,8 +178,7 @@ async function pdfToCanvases(file){
   for(let p=1;p<=pdf.numPages;p++){
     const page = await pdf.getPage(p);
     const base = page.getViewport({scale:1});
-    const scale = REF_W / base.width;
-    const viewport = page.getViewport({scale});
+    const viewport = page.getViewport({scale:REF_W / base.width});
     const c = document.createElement('canvas');
     c.width = Math.round(viewport.width);
     c.height = Math.round(viewport.height);
@@ -213,9 +206,7 @@ function normalizeCanvas(src){
   const c = document.createElement('canvas');
   c.width = REF_W; c.height = REF_H;
   const ctx = c.getContext('2d',{willReadFrequently:true});
-  ctx.fillStyle = 'white'; ctx.fillRect(0,0,REF_W,REF_H);
-
-  // A4 세로 비율에 맞춰 전체 페이지를 동일 크기로 정규화
+  ctx.fillStyle='white'; ctx.fillRect(0,0,REF_W,REF_H);
   ctx.drawImage(src,0,0,REF_W,REF_H);
   return c;
 }
@@ -224,34 +215,28 @@ function alignCanvas(src){
   const srcCtx = src.getContext('2d',{willReadFrequently:true});
   const srcData = srcCtx.getImageData(0,0,REF_W,REF_H).data;
 
-  let bestDx = 0, bestDy = 0, bestScore = Infinity;
-  // 작은 스캔 위치 오차를 보정. 큰 회전/왜곡은 검토 대상으로 남길 수 있음.
-  for(let dy=-10; dy<=10; dy+=2){
-    for(let dx=-10; dx<=10; dx+=2){
-      let score=0, n=0;
-      for(let y=120; y<1550; y+=22){
-        for(let x=90; x<1150; x+=22){
-          const sx=x+dx, sy=y+dy;
+  let bestDx=0,bestDy=0,bestScore=Infinity;
+  for(let dy=-10;dy<=10;dy+=2){
+    for(let dx=-10;dx<=10;dx+=2){
+      let score=0,n=0;
+      for(let y=120;y<1550;y+=22){
+        for(let x=90;x<1150;x+=22){
+          const sx=x+dx,sy=y+dy;
           if(sx<0||sy<0||sx>=REF_W||sy>=REF_H) continue;
-          const si=(sy*REF_W+sx)*4;
-          const ti=(y*REF_W+x)*4;
+          const si=(sy*REF_W+sx)*4, ti=(y*REF_W+x)*4;
           const sg=(srcData[si]+srcData[si+1]+srcData[si+2])/3;
           const tg=(templatePixels[ti]+templatePixels[ti+1]+templatePixels[ti+2])/3;
-          // 흰 여백보다 인쇄선/글자 쪽에 가중치
-          if(tg < 225){
-            score += Math.abs(sg-tg);
-            n++;
-          }
+          if(tg<225){score+=Math.abs(sg-tg);n++;}
         }
       }
-      const avg = n ? score/n : Infinity;
-      if(avg < bestScore){ bestScore=avg; bestDx=dx; bestDy=dy; }
+      const avg=n?score/n:Infinity;
+      if(avg<bestScore){bestScore=avg;bestDx=dx;bestDy=dy;}
     }
   }
 
-  if(bestDx===0 && bestDy===0) return src;
+  if(bestDx===0&&bestDy===0) return src;
   const out=document.createElement('canvas');
-  out.width=REF_W; out.height=REF_H;
+  out.width=REF_W;out.height=REF_H;
   const ctx=out.getContext('2d',{willReadFrequently:true});
   ctx.fillStyle='white';ctx.fillRect(0,0,REF_W,REF_H);
   ctx.drawImage(src,-bestDx,-bestDy);
@@ -265,104 +250,182 @@ function analyzePage(canvas){
 
   const genderScores = REGIONS.gender.map(r => addedInkScore(scan,r));
   const genderPick = pickOne(genderScores,threshold);
-  const gender = genderPick.index >= 0 ? REGIONS.gender[genderPick.index].label : '';
+  const gender = genderPick.index>=0 ? REGIONS.gender[genderPick.index].label : '';
 
   const q2=[], q2Meta=[];
-  REGIONS.q2.rows.forEach(row => {
-    const scores=REGIONS.q2.cols.map(col => addedInkScore(scan,{
+  REGIONS.q2.rows.forEach(row=>{
+    const scores=REGIONS.q2.cols.map(col=>addedInkScore(scan,{
       x1:col[0]+8,y1:row[0]+5,x2:col[1]-8,y2:row[1]-5
     }));
     const pick=pickOne(scores,threshold);
-    q2.push(pick.index>=0 ? SCALE_LABELS[pick.index] : '');
+    q2.push(pick.index>=0?SCALE_LABELS[pick.index]:'');
     q2Meta.push({scores,pick});
   });
 
   const q3=[], q3Meta=[];
-  REGIONS.q3.rows.forEach(row => {
-    const scores=REGIONS.q3.cols.map(col => addedInkScore(scan,{
+  REGIONS.q3.rows.forEach(row=>{
+    const scores=REGIONS.q3.cols.map(col=>addedInkScore(scan,{
       x1:col[0]+8,y1:row[0]+5,x2:col[1]-8,y2:row[1]-5
     }));
     const pick=pickOne(scores,threshold);
-    q3.push(pick.index>=0 ? SCALE_LABELS[pick.index] : '');
+    q3.push(pick.index>=0?SCALE_LABELS[pick.index]:'');
     q3Meta.push({scores,pick});
   });
 
-  const q4Scores=REGIONS.q4.map(r => addedInkScore(scan,{
+  const q4Scores=REGIONS.q4.map(r=>addedInkScore(scan,{
     x1:r.x1+5,y1:r.y1+5,x2:r.x2-5,y2:r.y2-5
   }));
   const q4=REGIONS.q4.filter((r,i)=>q4Scores[i]>=threshold).map(r=>r.label);
 
   const warnings=[];
   if(genderPick.warning) warnings.push('성별');
-  q2Meta.forEach((m,i)=>{ if(m.pick.warning) warnings.push(`2-${i+1}`); });
-  q3Meta.forEach((m,i)=>{ if(m.pick.warning) warnings.push(`3-${i+1}`); });
+  q2Meta.forEach((m,i)=>{if(m.pick.warning) warnings.push(`2-${i+1}`);});
+  q3Meta.forEach((m,i)=>{if(m.pick.warning) warnings.push(`3-${i+1}`);});
 
   return {gender,q2,q3,q4,warnings,genderScores,q2Meta,q3Meta,q4Scores};
 }
 
 function addedInkScore(scan,r){
-  let newDark=0, eligible=0;
-  const x1=Math.max(0,Math.floor(r.x1)), y1=Math.max(0,Math.floor(r.y1));
-  const x2=Math.min(REF_W,Math.ceil(r.x2)), y2=Math.min(REF_H,Math.ceil(r.y2));
-
+  let newDark=0,eligible=0;
+  const x1=Math.max(0,Math.floor(r.x1)),y1=Math.max(0,Math.floor(r.y1));
+  const x2=Math.min(REF_W,Math.ceil(r.x2)),y2=Math.min(REF_H,Math.ceil(r.y2));
   for(let y=y1;y<y2;y+=2){
     for(let x=x1;x<x2;x+=2){
       const i=(y*REF_W+x)*4;
       const tg=(templatePixels[i]+templatePixels[i+1]+templatePixels[i+2])/3;
       const sg=(scan[i]+scan[i+1]+scan[i+2])/3;
-      // 빈 템플릿에서 밝은 곳에 새로 생긴 진한 픽셀만 체크
       if(tg>205){
         eligible++;
-        if(sg<145 && (tg-sg)>45) newDark++;
+        if(sg<145&&(tg-sg)>45)newDark++;
       }
     }
   }
-  return eligible ? (newDark/eligible)*100 : 0;
+  return eligible?(newDark/eligible)*100:0;
 }
 
 function pickOne(scores,threshold){
   const order=scores.map((v,i)=>({v,i})).sort((a,b)=>b.v-a.v);
-  const top=order[0], second=order[1]||{v:0};
-  if(!top || top.v<threshold){
-    return {index:-1,warning:true,reason:'미응답 또는 인식 약함'};
-  }
-  const close = second.v>=threshold && (top.v-second.v)<Math.max(.18,top.v*.22);
-  return {index:top.i,warning:close,reason:close?'복수 표시 가능성':''};
+  const top=order[0],second=order[1]||{v:0};
+  if(!top||top.v<threshold)return {index:-1,warning:true};
+  const close=second.v>=threshold&&(top.v-second.v)<Math.max(.18,top.v*.22);
+  return {index:top.i,warning:close};
 }
 
 function renderResults(){
   const total=records.length;
   const warningCount=records.filter(r=>r.warnings.length).length;
-  const completed=records.filter(r=>r.q2.filter(Boolean).length===4 && r.q3.filter(Boolean).length===3).length;
-  const noGender=records.filter(r=>!r.gender).length;
+  const namedCount=records.filter(r=>r.programName.trim()).length;
+  const commentCount=records.filter(r=>r.comment.trim()).length;
 
   document.getElementById('stats').innerHTML=[
     stat('총 설문지',total+'부'),
-    stat('주요 문항 완전 판독',completed+'부'),
+    stat('프로그램명 입력',namedCount+'부'),
     stat('검토 필요',warningCount+'부'),
-    stat('성별 미판독',noGender+'부')
+    stat('기타 의견 입력',commentCount+'건')
   ].join('');
 
-  const g = countValues(records.map(r=>r.gender),['남','여','']);
-  document.getElementById('genderResult').innerHTML = bars([
+  const g=countValues(records.map(r=>r.gender),['남','여','']);
+  document.getElementById('genderResult').innerHTML=bars([
     ['남',g['남']||0],['여',g['여']||0],['미응답/미판독',g['']||0]
-  ],total);
+  ],Math.max(1,total));
 
-  document.getElementById('q2Result').innerHTML=likertTable(
-    QUESTION_LABELS.q2,
-    QUESTION_LABELS.q2.map((_,i)=>records.map(r=>r.q2[i]))
-  );
-  document.getElementById('q3Result').innerHTML=likertTable(
-    QUESTION_LABELS.q3,
-    QUESTION_LABELS.q3.map((_,i)=>records.map(r=>r.q3[i]))
-  );
+  renderQ2Integrated();
+  renderQ3ByProgram();
+  renderQ4();
+  renderCommentsByProgram();
+}
 
-  const q4Counts=Object.fromEntries(QUESTION_LABELS.q4.map(x=>[x,0]));
-  records.forEach(r=>r.q4.forEach(v=>{ if(v in q4Counts) q4Counts[v]++; }));
+function renderQ2Integrated(){
+  // 2-1~2-4를 모두 한 배열로 펼쳐 통합 집계
+  const all=records.flatMap(r=>r.q2);
+  const counts=countValues(all,[...SCALE_LABELS,'']);
+  const answered=SCALE_LABELS.reduce((sum,k)=>sum+(counts[k]||0),0);
+  const totalPossible=records.length*4;
+
+  document.getElementById('q2IntegratedResult').innerHTML = `
+    <div class="stats" style="margin-bottom:14px">
+      ${stat('유효 응답 수',answered+'건')}
+      ${stat('전체 가능 응답',totalPossible+'건')}
+      ${stat('미응답/미판독',(counts['']||0)+'건')}
+      ${stat('긍정 응답률',answered?(((counts['매우 만족']||0)+(counts['만족']||0))/answered*100).toFixed(1)+'%':'-')}
+    </div>
+    ${bars(SCALE_LABELS.map(k=>[k,counts[k]||0]),Math.max(1,answered))}
+  `;
+}
+
+function renderQ3ByProgram(){
+  const root=document.getElementById('q3ByProgramResult');
+  const groups=groupRecordsByProgram();
+
+  if(!Object.keys(groups).length){
+    root.innerHTML='<div class="empty-box">응답 검토 화면에서 프로그램명을 입력하면 여기에 프로그램별 통계가 표시됩니다.</div>';
+    return;
+  }
+
+  root.innerHTML=Object.entries(groups).map(([program,items])=>{
+    return `
+      <div class="program-block">
+        <div class="program-title">
+          <h3>${escapeHtml(program)}</h3>
+          <span class="pill">${items.length}부</span>
+        </div>
+        ${likertTable(
+          QUESTION_LABELS.q3,
+          QUESTION_LABELS.q3.map((_,i)=>items.map(r=>r.q3[i]))
+        )}
+      </div>
+    `;
+  }).join('');
+}
+
+function renderQ4(){
+  const counts=Object.fromEntries(QUESTION_LABELS.q4.map(x=>[x,0]));
+  records.forEach(r=>r.q4.forEach(v=>{if(v in counts)counts[v]++;}));
   document.getElementById('q4Result').innerHTML=bars(
-    QUESTION_LABELS.q4.map(v=>[v,q4Counts[v]]),
-    Math.max(1,total)
+    QUESTION_LABELS.q4.map(v=>[v,counts[v]]),
+    Math.max(1,records.length)
   );
+}
+
+function renderCommentsByProgram(){
+  const root=document.getElementById('commentsByProgramResult');
+  const groups={};
+
+  records.forEach(r=>{
+    const comment=r.comment.trim();
+    if(!comment)return;
+    const program=r.programName.trim()||'프로그램명 미입력';
+    if(!groups[program])groups[program]=[];
+    groups[program].push(comment);
+  });
+
+  if(!Object.keys(groups).length){
+    root.innerHTML='<div class="empty-box">응답 검토 화면에서 기타 의견을 입력하면 여기에 프로그램별로 모아 표시됩니다.</div>';
+    return;
+  }
+
+  root.innerHTML=Object.entries(groups).map(([program,comments])=>`
+    <div class="program-block">
+      <div class="program-title">
+        <h3>${escapeHtml(program)}</h3>
+        <span class="pill">${comments.length}건</span>
+      </div>
+      <div class="comment-list">
+        ${comments.map((c,i)=>`<div class="comment-item"><strong>${i+1}.</strong> ${escapeHtml(c)}</div>`).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+function groupRecordsByProgram(){
+  const groups={};
+  records.forEach(r=>{
+    const name=r.programName.trim();
+    if(!name)return;
+    if(!groups[name])groups[name]=[];
+    groups[name].push(r);
+  });
+  return groups;
 }
 
 function renderReview(){
@@ -388,6 +451,23 @@ function renderReview(){
         </div>
       </div>
 
+      <div class="review-meta">
+        <label>
+          프로그램명
+          <input type="text"
+            placeholder="예: 전통 비즈 뒤꽂이 만들기"
+            value="${escapeAttr(r.programName)}"
+            oninput="updateTextField('${r.id}','programName',this.value)">
+        </label>
+
+        <label>
+          기타 의견 / 건의사항
+          <textarea
+            placeholder="설문지 5번 자유의견을 보고 직접 입력하세요."
+            oninput="updateTextField('${r.id}','comment',this.value)">${escapeHtml(r.comment)}</textarea>
+        </label>
+      </div>
+
       <div class="review-grid">
         ${selectField(r.id,'gender','성별',r.gender,['','남','여'])}
         ${r.q2.map((v,i)=>selectField(r.id,`q2.${i}`,`2-${i+1}. ${shortLabel(QUESTION_LABELS.q2[i])}`,v,['',...SCALE_LABELS])).join('')}
@@ -396,7 +476,8 @@ function renderReview(){
           4. 희망 프로그램
           <div class="q4-checks">
             ${QUESTION_LABELS.q4.map(v=>`
-              <label><input type="checkbox" ${r.q4.includes(v)?'checked':''} onchange="updateQ4('${r.id}','${v}',this.checked)"> ${v}</label>
+              <label><input type="checkbox" ${r.q4.includes(v)?'checked':''}
+                onchange="updateQ4('${r.id}','${v}',this.checked)"> ${v}</label>
             `).join('')}
           </div>
         </label>
@@ -405,37 +486,44 @@ function renderReview(){
   `).join('');
 }
 
+function updateTextField(id,key,value){
+  const r=records.find(x=>x.id===id);if(!r)return;
+  r[key]=value;
+  renderResults();
+}
+window.updateTextField=updateTextField;
+
 function selectField(id,path,label,value,options){
   return `<label>${escapeHtml(label)}
     <select onchange="updateAnswer('${id}','${path}',this.value)">
-      ${options.map(o=>`<option value="${escapeHtml(o)}" ${o===value?'selected':''}>${escapeHtml(o||'미응답/미판독')}</option>`).join('')}
+      ${options.map(o=>`<option value="${escapeAttr(o)}" ${o===value?'selected':''}>${escapeHtml(o||'미응답/미판독')}</option>`).join('')}
     </select>
   </label>`;
 }
 
 function updateAnswer(id,path,value){
-  const r=records.find(x=>x.id===id); if(!r)return;
-  if(path==='gender') r.gender=value;
+  const r=records.find(x=>x.id===id);if(!r)return;
+  if(path==='gender')r.gender=value;
   else{
     const [key,idx]=path.split('.');
     r[key][Number(idx)]=value;
   }
-  r.warnings=[]; // 사용자가 확인한 것으로 처리
+  r.warnings=[];
   renderResults();
   renderReview();
 }
 window.updateAnswer=updateAnswer;
 
 function updateQ4(id,value,checked){
-  const r=records.find(x=>x.id===id); if(!r)return;
-  if(checked && !r.q4.includes(value)) r.q4.push(value);
-  if(!checked) r.q4=r.q4.filter(v=>v!==value);
+  const r=records.find(x=>x.id===id);if(!r)return;
+  if(checked&&!r.q4.includes(value))r.q4.push(value);
+  if(!checked)r.q4=r.q4.filter(v=>v!==value);
   renderResults();
 }
 window.updateQ4=updateQ4;
 
 function showOriginal(id){
-  const r=records.find(x=>x.id===id); if(!r)return;
+  const r=records.find(x=>x.id===id);if(!r)return;
   document.getElementById('modalTitle').textContent=`${r.fileName} ${r.page>1?'- '+r.page+'p':''}`;
   document.getElementById('modalImage').src=r.imageDataUrl;
   document.getElementById('imageModal').classList.remove('hidden');
@@ -448,8 +536,8 @@ function closeModal(){
 }
 
 function likertTable(labels,answers){
-  let head='<tr><th>문항</th>'+SCALE_LABELS.map(x=>`<th>${x}</th>`).join('')+'<th>미응답/미판독</th><th>응답계</th></tr>';
-  let rows=labels.map((label,i)=>{
+  const head='<tr><th>문항</th>'+SCALE_LABELS.map(x=>`<th>${x}</th>`).join('')+'<th>미응답/미판독</th><th>응답계</th></tr>';
+  const rows=labels.map((label,i)=>{
     const counts=countValues(answers[i],[...SCALE_LABELS,'']);
     const answered=SCALE_LABELS.reduce((a,k)=>a+(counts[k]||0),0);
     return `<tr>
@@ -459,13 +547,13 @@ function likertTable(labels,answers){
       <td class="total">${answered}</td>
     </tr>`;
   }).join('');
-  return `<table><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+  return `<div class="table-wrap"><table><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function bars(items,total){
   const max=Math.max(1,...items.map(x=>x[1]));
   return items.map(([label,count])=>{
-    const pct=total ? (count/total*100) : 0;
+    const pct=total?(count/total*100):0;
     return `<div class="bar-row">
       <span>${escapeHtml(label)}</span>
       <div class="bar"><span style="width:${(count/max*100).toFixed(1)}%"></span></div>
@@ -476,24 +564,22 @@ function bars(items,total){
 
 function countValues(values,keys){
   const out=Object.fromEntries(keys.map(k=>[k,0]));
-  values.forEach(v=>{ if(v in out) out[v]++; else out[v]=1; });
+  values.forEach(v=>{if(v in out)out[v]++;else out[v]=1;});
   return out;
 }
-function stat(label,value){return `<div class="stat"><div class="label">${label}</div><div class="value">${value}</div></div>`;}
 
 function downloadCSV(){
   if(!records.length)return;
   const headers=[
-    '파일명','페이지','성별',
+    '파일명','페이지','프로그램명','성별',
     ...QUESTION_LABELS.q2.map((_,i)=>`2-${i+1}`),
     ...QUESTION_LABELS.q3.map((_,i)=>`3-${i+1}`),
-    '희망프로그램','검토필요'
+    '희망프로그램','기타의견','검토필요'
   ];
   const rows=records.map(r=>[
-    r.fileName,r.page,r.gender,
+    r.fileName,r.page,r.programName,r.gender,
     ...r.q2,...r.q3,
-    r.q4.join('|'),
-    r.warnings.join('|')
+    r.q4.join('|'),r.comment,r.warnings.join('|')
   ]);
   const csv='\uFEFF'+[headers,...rows].map(row=>row.map(csvCell).join(',')).join('\r\n');
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
@@ -509,10 +595,11 @@ function switchView(name){
   document.querySelectorAll('.nav').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-'+name).classList.add('active');
   document.querySelector(`.nav[data-view="${name}"]`).classList.add('active');
-  const titles={upload:'설문 업로드',result:'집계 결과',review:'응답 검토'};
-  document.getElementById('pageTitle').textContent=titles[name];
+  document.getElementById('pageTitle').textContent={
+    upload:'설문 업로드',result:'집계 결과',review:'응답 검토'
+  }[name];
+  if(name==='result')renderResults();
 }
-
 function resetAll(){
   selectedFiles=[];records=[];
   document.getElementById('fileInput').value='';
@@ -521,7 +608,7 @@ function resetAll(){
   document.getElementById('reviewList').innerHTML='';
   switchView('upload');
 }
-
+function stat(label,value){return `<div class="stat"><div class="label">${label}</div><div class="value">${value}</div></div>`;}
 function showProgress(on){document.getElementById('progressWrap').classList.toggle('hidden',!on);}
 function updateProgress(done,total,text){
   const pct=total?Math.round(done/total*100):0;
@@ -535,3 +622,4 @@ function formatBytes(n){if(n<1024)return n+' B';if(n<1048576)return (n/1024).toF
 function csvCell(v){const s=String(v??'');return '"'+s.replaceAll('"','""')+'"';}
 function shortLabel(s){return s.length>18?s.slice(0,18)+'…':s;}
 function escapeHtml(s=''){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function escapeAttr(s=''){return escapeHtml(s);}
