@@ -74,6 +74,35 @@ function bindUI(){
   document.getElementById('resetBtn').addEventListener('click', resetAll);
   document.getElementById('downloadCsvBtn').addEventListener('click', downloadCSV);
   document.getElementById('reviewFilter').addEventListener('change', renderReview);
+
+  const templateInput = document.getElementById('templateFileInput');
+  if(templateInput) templateInput.addEventListener('change', async e => {
+    const file = e.target.files?.[0];
+    if(!file) return;
+    try{
+      setTemplateStatus('처리 중');
+      const canvas = file.type === 'application/pdf'
+        ? (await pdfToCanvases(file))[0]
+        : await imageFileToCanvas(file);
+      const normalized = normalizeCanvas(canvas);
+      await applyTemplateCanvas(normalized, file.name, true);
+      setTemplateStatus('사용 중');
+      alert('새 기준 설문 양식이 이 컴퓨터에 저장되었습니다.');
+    }catch(err){
+      console.error(err);
+      setTemplateStatus('오류');
+      alert('기준 양식을 불러오지 못했습니다: ' + err.message);
+    }finally{
+      e.target.value = '';
+    }
+  });
+
+  const resetTemplateBtn = document.getElementById('resetTemplateBtn');
+  if(resetTemplateBtn) resetTemplateBtn.addEventListener('click', async () => {
+    await deleteStoredTemplate();
+    await loadDefaultTemplate();
+    setTemplateStatus('기본 양식');
+  });
   document.getElementById('closeModal').addEventListener('click', closeModal);
   document.getElementById('imageModal').addEventListener('click', e => {
     if(e.target.id === 'imageModal') closeModal();
@@ -110,12 +139,101 @@ function setFiles(files){
 }
 
 async function loadTemplate(){
+  try{
+    const saved = await getStoredTemplate();
+    if(saved?.dataUrl){
+      const img = await loadImage(saved.dataUrl);
+      const canvas = document.createElement('canvas');
+      canvas.width = REF_W; canvas.height = REF_H;
+      const ctx = canvas.getContext('2d', {willReadFrequently:true});
+      ctx.fillStyle='white'; ctx.fillRect(0,0,REF_W,REF_H);
+      ctx.drawImage(img,0,0,REF_W,REF_H);
+      await applyTemplateCanvas(canvas, saved.name || '저장된 기준 양식', false);
+      setTemplateStatus('저장 양식');
+      return;
+    }
+  }catch(err){
+    console.warn('저장된 기준 양식 복원 실패', err);
+  }
+  await loadDefaultTemplate();
+}
+
+async function loadDefaultTemplate(){
   const img = await loadImage('template.png');
   const canvas = document.createElement('canvas');
   canvas.width = REF_W; canvas.height = REF_H;
   const ctx = canvas.getContext('2d', {willReadFrequently:true});
+  ctx.fillStyle='white'; ctx.fillRect(0,0,REF_W,REF_H);
   ctx.drawImage(img,0,0,REF_W,REF_H);
+  await applyTemplateCanvas(canvas, '기본 template.png', false);
+}
+
+async function applyTemplateCanvas(canvas, name, persist){
+  const ctx = canvas.getContext('2d', {willReadFrequently:true});
   templatePixels = ctx.getImageData(0,0,REF_W,REF_H).data;
+
+  const nameInput = document.getElementById('templateName');
+  if(nameInput) nameInput.value = name;
+
+  const preview = document.getElementById('templatePreview');
+  const previewWrap = document.getElementById('templatePreviewWrap');
+  if(preview && previewWrap){
+    preview.src = canvas.toDataURL('image/jpeg', .82);
+    previewWrap.style.display = 'block';
+  }
+
+  if(persist){
+    const dataUrl = canvas.toDataURL('image/png');
+    await saveStoredTemplate({name, dataUrl, savedAt:new Date().toISOString()});
+  }
+}
+
+function setTemplateStatus(text){
+  const el = document.getElementById('templateStatus');
+  if(el) el.textContent = text;
+}
+
+function openTemplateDB(){
+  return new Promise((resolve,reject)=>{
+    const req = indexedDB.open('SurveyCounterDB', 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if(!db.objectStoreNames.contains('settings')) db.createObjectStore('settings');
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function getStoredTemplate(){
+  const db = await openTemplateDB();
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction('settings','readonly');
+    const req = tx.objectStore('settings').get('activeTemplate');
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => db.close();
+  });
+}
+
+async function saveStoredTemplate(value){
+  const db = await openTemplateDB();
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction('settings','readwrite');
+    tx.objectStore('settings').put(value,'activeTemplate');
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { const err=tx.error; db.close(); reject(err); };
+  });
+}
+
+async function deleteStoredTemplate(){
+  const db = await openTemplateDB();
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction('settings','readwrite');
+    tx.objectStore('settings').delete('activeTemplate');
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { const err=tx.error; db.close(); reject(err); };
+  });
 }
 
 async function ensurePdfJs(){
