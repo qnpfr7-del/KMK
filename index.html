@@ -40,12 +40,43 @@
 
       <section id="view-upload" class="view active">
         <div class="notice">
-          <strong>이번 버전의 집계 방식</strong>
+          <strong>샘플 비교 방식</strong>
           <p>
-            2번 강의 운영 문항은 2-1~2-4의 모든 응답을 하나로 합쳐 전체 운영 만족도로 집계합니다.
-            3번 강의 평가 문항은 응답 검토 화면에서 입력한 프로그램명을 기준으로 프로그램별로 따로 집계합니다.
+            등록한 빈 설문 양식과 응답지를 비교해 새로 생긴 표시를 판독합니다.
+            체크, 동그라미, 사선, 칠하기처럼 표시 방법이 달라도 선택지 영역의 차이량을 기준으로 값을 추출합니다.
+            2번은 통합 집계하고 3번은 프로그램별로 따로 집계합니다.
           </p>
         </div>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>기준 설문 양식</h2>
+              <p class="help">빈 설문지 PDF/JPG/PNG를 등록하면 이 컴퓨터의 브라우저에 저장되고, 이후 응답지와 비교할 때 자동으로 사용합니다.</p>
+            </div>
+            <span id="templateStatus" class="pill">불러오는 중</span>
+          </div>
+          <div class="review-meta">
+            <label>
+              현재 기준 양식
+              <input id="templateName" type="text" value="기본 template.png" readonly>
+            </label>
+            <label>
+              기준 양식 교체
+              <div class="action-row" style="justify-content:flex-start;margin-top:8px">
+                <label class="primary small">
+                  새 양식 선택
+                  <input id="templateFileInput" type="file" accept=".pdf,image/png,image/jpeg" hidden>
+                </label>
+                <button type="button" class="outline small" id="resetTemplateBtn">기본 양식으로 복원</button>
+              </div>
+            </label>
+          </div>
+          <div id="templatePreviewWrap" style="margin-top:14px;display:none">
+            <img id="templatePreview" alt="기준 설문 양식 미리보기" style="max-width:320px;width:100%;border:1px solid #e3e8f1;border-radius:10px">
+          </div>
+          <p class="help" style="margin-top:10px">※ 문항 위치와 표 구조가 같은 양식은 문구가 바뀌어도 그대로 비교할 수 있습니다. 표 위치 자체가 크게 바뀌면 문항 좌표 재설정이 필요합니다.</p>
+        </section>
 
         <div class="upload-card" id="dropZone">
           <div class="upload-icon">↑</div>
