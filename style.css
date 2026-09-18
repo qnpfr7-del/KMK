@@ -93,3 +93,54 @@ th{background:#fafbfc;color:#596174}.total{font-weight:700;background:#fafbfc}
   nav{flex-direction:row;overflow:auto}.nav{white-space:nowrap}.side-note{display:none}
   .stats{grid-template-columns:1fr 1fr}.review-grid,.review-meta{grid-template-columns:1fr}
 }
+
+
+/* 기준 설문 양식 관리 */
+#templateStatus{
+  min-width:72px;
+  text-align:center;
+}
+#templateName[readonly]{
+  background:#f8f9fc;
+  color:#4b5565;
+}
+#templatePreviewWrap{
+  padding:12px;
+  background:#fafbfc;
+  border:1px dashed var(--line);
+  border-radius:12px;
+}
+#templatePreview{
+  display:block;
+  margin:0 auto;
+  background:white;
+  box-shadow:0 4px 14px rgba(35,44,70,.06);
+}
+#templateFileInput{display:none}
+.panel .action-row{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.panel .review-meta{
+  align-items:start;
+}
+.panel .review-meta > label{
+  min-width:0;
+}
+.panel .review-meta input[readonly]{
+  cursor:default;
+}
+.template-hint{
+  margin-top:10px;
+  padding:10px 12px;
+  border-radius:10px;
+  background:#faf8ff;
+  color:#666176;
+  font-size:12px;
+  line-height:1.6;
+}
+@media(max-width:760px){
+  #templatePreview{max-width:100%!important}
+  .panel .action-row{justify-content:flex-start!important}
+}
