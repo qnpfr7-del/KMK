@@ -157,7 +157,7 @@ async function loadTemplate(){
       ctx.fillStyle='white'; ctx.fillRect(0,0,REF_W,REF_H);
       ctx.drawImage(img,0,0,REF_W,REF_H);
       await applyTemplateCanvas(canvas, saved.name || '저장된 기준 양식', false);
-      setTemplateStatus('저장 양식');
+      setTemplateStatus('사용 중');
       return;
     }
   }catch(err){
@@ -187,7 +187,7 @@ async function applyTemplateCanvas(canvas, name, persist){
   const previewWrap = document.getElementById('templatePreviewWrap');
   if(preview && previewWrap){
     preview.src = canvas.toDataURL('image/jpeg', .82);
-    previewWrap.style.display = 'block';
+    previewWrap.hidden = false;
   }
 
   if(persist){
@@ -201,7 +201,12 @@ async function applyTemplateCanvas(canvas, name, persist){
 
 function setTemplateStatus(text){
   const el = document.getElementById('templateStatus');
-  if(el) el.textContent = text;
+  if(!el) return;
+  el.textContent = text;
+  el.classList.remove('loading','success','error');
+  if(text.includes('오류')) el.classList.add('error');
+  else if(text.includes('처리') || text.includes('복원') || text.includes('불러')) el.classList.add('loading');
+  else el.classList.add('success');
 }
 
 function openTemplateDB(){
@@ -731,8 +736,10 @@ function switchView(name){
   document.querySelectorAll('.nav').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-'+name).classList.add('active');
   document.querySelector(`.nav[data-view="${name}"]`).classList.add('active');
-  document.getElementById('pageTitle').textContent={
-    upload:'설문 업로드',result:'집계 결과',review:'응답 검토'
+  document.getElementById('pageTitle').innerHTML={
+    upload:'만족도 조사 결과를<br>더 빠르고 정확하게',
+    result:'분석 결과를<br>한눈에 확인하세요',
+    review:'자동 판독 결과를<br>확인하고 보정하세요'
   }[name];
   if(name==='result')renderResults();
 }
@@ -741,7 +748,13 @@ function resetAll(){
   document.getElementById('fileInput').value='';
   setFiles([]);
   document.getElementById('stats').innerHTML='';
-  document.getElementById('reviewList').innerHTML='';
+  document.getElementById('reviewList').innerHTML=
+    '<div class="empty-state"><strong>아직 분석된 설문이 없습니다.</strong><p>설문 분석을 완료하면 자동 판독 결과가 여기에 표시됩니다.</p></div>';
+  document.getElementById('genderResult').innerHTML='';
+  document.getElementById('q2IntegratedResult').innerHTML='';
+  document.getElementById('q3ByProgramResult').innerHTML='';
+  document.getElementById('q4Result').innerHTML='';
+  document.getElementById('commentsByProgramResult').innerHTML='';
   switchView('upload');
 }
 function stat(label,value){return `<div class="stat"><div class="label">${label}</div><div class="value">${value}</div></div>`;}
