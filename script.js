@@ -99,9 +99,17 @@ function bindUI(){
 
   const resetTemplateBtn = document.getElementById('resetTemplateBtn');
   if(resetTemplateBtn) resetTemplateBtn.addEventListener('click', async () => {
-    await deleteStoredTemplate();
-    await loadDefaultTemplate();
-    setTemplateStatus('기본 양식');
+    try{
+      setTemplateStatus('복원 중');
+      await deleteStoredTemplate();
+      await loadDefaultTemplate();
+      setTemplateStatus('기본 양식');
+      alert('기본 template.png 양식으로 복원했습니다.');
+    }catch(err){
+      console.error(err);
+      setTemplateStatus('오류');
+      alert('기본 양식 복원에 실패했습니다: ' + err.message);
+    }
   });
   document.getElementById('closeModal').addEventListener('click', closeModal);
   document.getElementById('imageModal').addEventListener('click', e => {
@@ -121,7 +129,7 @@ function setFiles(files){
   selectedFiles = files.filter(validFile);
   const list = document.getElementById('fileList');
   document.getElementById('fileCount').textContent = selectedFiles.length + '개';
-  document.getElementById('analyzeBtn').disabled = selectedFiles.length === 0;
+  document.getElementById('analyzeBtn').disabled = selectedFiles.length === 0 || !templatePixels;
 
   if(!selectedFiles.length){
     list.className = 'file-list empty-box';
@@ -186,6 +194,9 @@ async function applyTemplateCanvas(canvas, name, persist){
     const dataUrl = canvas.toDataURL('image/png');
     await saveStoredTemplate({name, dataUrl, savedAt:new Date().toISOString()});
   }
+
+  const analyzeBtn = document.getElementById('analyzeBtn');
+  if(analyzeBtn) analyzeBtn.disabled = selectedFiles.length === 0 || !templatePixels;
 }
 
 function setTemplateStatus(text){
@@ -248,7 +259,7 @@ async function ensurePdfJs(){
 }
 
 async function analyzeAll(){
-  if(!templatePixels) return alert('기준 설문지를 불러오지 못했습니다.');
+  if(!templatePixels) return alert('기준 설문 양식이 준비되지 않았습니다. 기준 양식을 먼저 확인해주세요.');
   records = [];
   showProgress(true);
 
@@ -393,7 +404,14 @@ function analyzePage(canvas){
   const q4Scores=REGIONS.q4.map(r=>addedInkScore(scan,{
     x1:r.x1+5,y1:r.y1+5,x2:r.x2-5,y2:r.y2-5
   }));
-  const q4=REGIONS.q4.filter((r,i)=>q4Scores[i]>=threshold).map(r=>r.label);
+
+  // 복수응답은 단순 절대 임계값만 적용하면 정렬 오차가 선택으로 잡힐 수 있다.
+  // 중앙값 대비 차이 + 페이지 내 최고점 대비 비율을 함께 사용해 오검출을 줄인다.
+  const sortedQ4=[...q4Scores].sort((a,b)=>a-b);
+  const q4Median=sortedQ4[Math.floor(sortedQ4.length/2)]||0;
+  const q4Peak=Math.max(...q4Scores,0);
+  const q4Cut=Math.max(threshold, q4Median + 0.20, q4Peak * 0.60);
+  const q4=REGIONS.q4.filter((r,i)=>q4Scores[i]>=q4Cut).map(r=>r.label);
 
   const warnings=[];
   if(genderPick.warning) warnings.push('성별');
