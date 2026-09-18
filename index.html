@@ -3,111 +3,145 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>만족도조사 자동 집계</title>
+  <meta name="description" content="만족도 조사 PDF를 업로드해 응답을 자동 판독하고 통계를 집계하는 도구">
+  <title>Survey Insight | 만족도 조사 결과 분석</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="app">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-icon">S</div>
-        <div>
-          <strong>Survey Counter</strong>
-          <span>만족도조사 자동 집계</span>
-        </div>
-      </div>
-      <nav>
-        <button class="nav active" data-view="upload">1. 설문 업로드</button>
-        <button class="nav" data-view="result">2. 집계 결과</button>
-        <button class="nav" data-view="review">3. 응답 검토</button>
+  <div class="site-shell">
+    <header class="site-header">
+      <a class="brand" href="#" aria-label="Survey Insight 홈">
+        <span class="brand-mark">S</span>
+        <span class="brand-copy">
+          <strong>Survey Insight</strong>
+          <small>만족도 조사 결과 분석</small>
+        </span>
+      </a>
+
+      <nav class="top-nav" aria-label="주요 메뉴">
+        <button class="nav active" data-view="upload">설문 분석</button>
+        <button class="nav" data-view="result">집계 결과</button>
+        <button class="nav" data-view="review">응답 검토</button>
       </nav>
-      <div class="side-note">
-        <strong>집계 기준</strong>
-        <span>2번: 2-1~2-4 통합</span>
-        <span>3번: 프로그램별 개별 집계</span>
-        <span>의견: 프로그램별 모아보기</span>
-      </div>
-    </aside>
+
+      <button class="ghost-btn" id="resetBtn" type="button">새로 시작</button>
+    </header>
 
     <main class="main">
-      <header class="topbar">
-        <div>
-          <h1 id="pageTitle">설문 업로드</h1>
-          <p>스캔 설문지를 자동 판독하고, 필요한 항목은 검토 화면에서 직접 보정합니다.</p>
-        </div>
-        <button class="outline" id="resetBtn">초기화</button>
-      </header>
-
-      <section id="view-upload" class="view active">
-        <div class="notice">
-          <strong>샘플 비교 방식</strong>
+      <section class="hero">
+        <div class="hero-copy">
+          <span class="eyebrow">SURVEY DATA ANALYSIS</span>
+          <h1 id="pageTitle">만족도 조사 결과를<br>더 빠르고 정확하게</h1>
           <p>
-            등록한 빈 설문 양식과 응답지를 비교해 새로 생긴 표시를 판독합니다.
-            체크, 동그라미, 사선, 칠하기처럼 표시 방법이 달라도 선택지 영역의 차이량을 기준으로 값을 추출합니다.
-            2번은 통합 집계하고 3번은 프로그램별로 따로 집계합니다.
+            동일한 설문 양식을 기준으로 스캔 PDF의 표시를 비교해 응답을 판독하고,
+            문항별 결과와 프로그램별 통계를 한 화면에서 확인합니다.
           </p>
         </div>
+        <div class="hero-flow" aria-label="분석 흐름">
+          <div><span>01</span><strong>기준 양식</strong><small>빈 설문 등록</small></div>
+          <i></i>
+          <div><span>02</span><strong>응답 업로드</strong><small>PDF · JPG · PNG</small></div>
+          <i></i>
+          <div><span>03</span><strong>자동 집계</strong><small>결과 확인 · 보정</small></div>
+        </div>
+      </section>
 
-        <section class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>기준 설문 양식</h2>
-              <p class="help">빈 설문지 PDF/JPG/PNG를 등록하면 이 컴퓨터의 브라우저에 저장되고, 이후 응답지와 비교할 때 자동으로 사용합니다.</p>
-            </div>
-            <span id="templateStatus" class="pill">불러오는 중</span>
+      <section id="view-upload" class="view active">
+        <div class="section-heading">
+          <div>
+            <span class="section-kicker">STEP 1</span>
+            <h2>설문 분석 준비</h2>
+            <p>빈 설문 양식을 기준으로 응답지에 새로 표시된 영역만 비교합니다.</p>
           </div>
-          <div class="review-meta">
-            <label>
-              현재 기준 양식
-              <input id="templateName" type="text" value="기본 template.png" readonly>
-            </label>
-            <label>
-              기준 양식 교체
-              <div class="action-row" style="justify-content:flex-start;margin-top:8px">
-                <label class="primary small">
-                  새 양식 선택
-                  <input id="templateFileInput" type="file" accept=".pdf,image/png,image/jpeg" hidden>
-                </label>
-                <button type="button" class="outline small" id="resetTemplateBtn">기본 양식으로 복원</button>
-              </div>
-            </label>
-          </div>
-          <div id="templatePreviewWrap" style="margin-top:14px;display:none">
-            <img id="templatePreview" alt="기준 설문 양식 미리보기" style="max-width:320px;width:100%;border:1px solid #e3e8f1;border-radius:10px">
-          </div>
-          <p class="help" style="margin-top:10px">※ 문항 위치와 표 구조가 같은 양식은 문구가 바뀌어도 그대로 비교할 수 있습니다. 표 위치 자체가 크게 바뀌면 문항 좌표 재설정이 필요합니다.</p>
-        </section>
-
-        <div class="upload-card" id="dropZone">
-          <div class="upload-icon">↑</div>
-          <h2>스캔 설문지를 올려주세요</h2>
-          <p>PDF/JPG/PNG 파일을 여러 개 선택할 수 있습니다.</p>
-          <label class="primary">
-            파일 선택
-            <input id="fileInput" type="file" accept=".pdf,image/png,image/jpeg" multiple hidden>
-          </label>
-          <div class="file-help">권장: A4 세로, 200~300dpi, 기울임이 적은 스캔</div>
         </div>
 
-        <section class="panel">
-          <div class="panel-head">
-            <h2>판독 민감도</h2>
-            <span id="thresholdText">0.70%</span>
-          </div>
-          <input id="threshold" type="range" min="0.20" max="2.50" step="0.05" value="0.70">
-          <p class="help">체크를 놓치면 값을 낮추고, 빈 칸을 체크로 오인하면 값을 높여주세요.</p>
-        </section>
+        <div class="analysis-grid">
+          <section class="work-card template-card">
+            <div class="card-head">
+              <div class="card-icon">01</div>
+              <div>
+                <h3>기준 설문 양식</h3>
+                <p>비교 기준이 되는 빈 설문지를 등록하세요.</p>
+              </div>
+              <span id="templateStatus" class="status-badge loading">불러오는 중</span>
+            </div>
 
-        <section class="panel">
-          <div class="panel-head">
-            <h2>선택 파일</h2>
-            <span id="fileCount" class="pill">0개</span>
-          </div>
-          <div id="fileList" class="file-list empty-box">아직 선택된 파일이 없습니다.</div>
-        </section>
+            <div class="template-info">
+              <label class="field-label" for="templateName">현재 기준 양식</label>
+              <input id="templateName" class="readonly-field" type="text" value="기본 template.png" readonly>
 
-        <div class="action-row">
-          <button class="primary big" id="analyzeBtn" disabled>설문 분석 시작</button>
+              <div class="button-row">
+                <label class="primary-btn compact" for="templateFileInput">
+                  기준 양식 변경
+                  <input id="templateFileInput" type="file" accept=".pdf,image/png,image/jpeg" hidden>
+                </label>
+                <button type="button" class="secondary-btn compact" id="resetTemplateBtn">기본 양식 복원</button>
+              </div>
+            </div>
+
+            <div id="templatePreviewWrap" class="template-preview-wrap" hidden>
+              <img id="templatePreview" alt="기준 설문 양식 미리보기">
+            </div>
+
+            <p class="card-note">
+              문구만 변경되고 표와 선택지 위치가 같다면 새 양식을 그대로 사용할 수 있습니다.
+              표 구조가 바뀌면 응답 좌표도 다시 설정해야 합니다.
+            </p>
+          </section>
+
+          <section class="work-card upload-main-card">
+            <div class="card-head">
+              <div class="card-icon accent">02</div>
+              <div>
+                <h3>응답 설문 업로드</h3>
+                <p>분석할 스캔 설문지를 한 번에 여러 개 올릴 수 있습니다.</p>
+              </div>
+            </div>
+
+            <div class="upload-card" id="dropZone">
+              <div class="upload-symbol" aria-hidden="true">↑</div>
+              <strong>분석할 파일을 여기에 놓아주세요</strong>
+              <p>PDF / JPG / PNG · 여러 파일 선택 가능</p>
+              <label class="primary-btn" for="fileInput">
+                파일 선택
+                <input id="fileInput" type="file" accept=".pdf,image/png,image/jpeg" multiple hidden>
+              </label>
+              <span class="upload-help">A4 세로 · 200~300dpi · 기울임이 적은 스캔 권장</span>
+            </div>
+          </section>
+        </div>
+
+        <div class="settings-grid">
+          <section class="work-card compact-card">
+            <div class="setting-title">
+              <div>
+                <span class="section-kicker">판독 설정</span>
+                <h3>판독 민감도</h3>
+              </div>
+              <strong id="thresholdText" class="threshold-value">0.70%</strong>
+            </div>
+            <input id="threshold" class="range-input" type="range" min="0.20" max="2.50" step="0.05" value="0.70">
+            <p class="card-note">체크를 놓치면 값을 낮추고, 빈 칸을 응답으로 오인하면 값을 높여주세요.</p>
+          </section>
+
+          <section class="work-card compact-card">
+            <div class="setting-title">
+              <div>
+                <span class="section-kicker">업로드 현황</span>
+                <h3>선택 파일</h3>
+              </div>
+              <span id="fileCount" class="count-badge">0개</span>
+            </div>
+            <div id="fileList" class="file-list empty-box">아직 선택된 파일이 없습니다.</div>
+          </section>
+        </div>
+
+        <div class="analyze-action">
+          <div>
+            <strong>준비가 끝났나요?</strong>
+            <p>기준 양식과 응답 파일을 확인한 뒤 분석을 시작하세요.</p>
+          </div>
+          <button class="primary-btn analyze-btn" id="analyzeBtn" type="button" disabled>설문 분석 시작</button>
         </div>
 
         <div class="progress-wrap hidden" id="progressWrap">
@@ -120,79 +154,89 @@
       </section>
 
       <section id="view-result" class="view">
+        <div class="section-heading result-heading">
+          <div>
+            <span class="section-kicker">ANALYSIS RESULT</span>
+            <h2>집계 결과</h2>
+            <p>판독된 응답을 문항별·프로그램별로 확인합니다.</p>
+          </div>
+          <button class="secondary-btn" id="downloadCsvBtn" type="button">CSV 다운로드</button>
+        </div>
+
         <div class="stats" id="stats"></div>
 
-        <section class="panel">
-          <div class="panel-head">
-            <h2>1. 참여자 정보</h2>
-            <button class="outline small" id="downloadCsvBtn">CSV 다운로드</button>
+        <section class="result-card">
+          <div class="result-card-head">
+            <div><span>01</span><h3>참여자 정보</h3></div>
           </div>
           <div id="genderResult"></div>
         </section>
 
-        <section class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>2. 강의 운영 만족도 · 통합 집계</h2>
-              <p class="help">2-1~2-4 응답을 모두 합친 통계입니다.</p>
-            </div>
+        <section class="result-card">
+          <div class="result-card-head">
+            <div><span>02</span><h3>강의 운영 만족도</h3></div>
+            <p>2-1~2-4 응답 통합 집계</p>
           </div>
           <div id="q2IntegratedResult"></div>
         </section>
 
-        <section class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>3. 프로그램별 강의 만족도</h2>
-              <p class="help">응답 검토 화면의 프로그램명을 기준으로 자동 그룹화합니다.</p>
-            </div>
+        <section class="result-card">
+          <div class="result-card-head">
+            <div><span>03</span><h3>프로그램별 강의 만족도</h3></div>
+            <p>응답 검토에서 입력한 프로그램명 기준</p>
           </div>
           <div id="q3ByProgramResult"></div>
         </section>
 
-        <section class="panel">
-          <div class="panel-head">
-            <h2>4. 향후 듣고 싶은 프로그램</h2>
+        <section class="result-card">
+          <div class="result-card-head">
+            <div><span>04</span><h3>향후 듣고 싶은 프로그램</h3></div>
           </div>
           <div id="q4Result"></div>
         </section>
 
-        <section class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>5. 프로그램별 기타 의견 · 건의사항</h2>
-              <p class="help">응답 검토 화면에서 직접 입력한 내용을 프로그램별로 모아 보여줍니다.</p>
-            </div>
+        <section class="result-card">
+          <div class="result-card-head">
+            <div><span>05</span><h3>기타 의견 · 건의사항</h3></div>
+            <p>프로그램별 의견 모아보기</p>
           </div>
           <div id="commentsByProgramResult"></div>
         </section>
       </section>
 
       <section id="view-review" class="view">
-        <section class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>응답 검토</h2>
-              <p class="help">
-                자동 판독 결과를 수정할 수 있습니다. 프로그램명과 기타 의견은 여기에서 직접 입력하세요.
-              </p>
-            </div>
-            <select id="reviewFilter">
-              <option value="all">전체 설문</option>
-              <option value="warning">검토 필요만</option>
-            </select>
+        <div class="section-heading">
+          <div>
+            <span class="section-kicker">REVIEW</span>
+            <h2>응답 검토</h2>
+            <p>자동 판독이 애매한 설문을 확인하고 필요한 값만 직접 보정합니다.</p>
           </div>
-          <div id="reviewList" class="review-list"></div>
-        </section>
+          <select id="reviewFilter" class="filter-select" aria-label="응답 검토 필터">
+            <option value="all">전체 설문</option>
+            <option value="warning">검토 필요만</option>
+          </select>
+        </div>
+
+        <div id="reviewList" class="review-list">
+          <div class="empty-state">
+            <strong>아직 분석된 설문이 없습니다.</strong>
+            <p>설문 분석을 완료하면 자동 판독 결과가 여기에 표시됩니다.</p>
+          </div>
+        </div>
       </section>
     </main>
+
+    <footer class="site-footer">
+      <strong>Survey Insight</strong>
+      <span>만족도 조사 결과 분석 전용 도구</span>
+    </footer>
   </div>
 
-  <div id="imageModal" class="modal hidden">
+  <div id="imageModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal-card">
       <div class="modal-head">
         <strong id="modalTitle">설문 원본</strong>
-        <button id="closeModal">×</button>
+        <button id="closeModal" type="button" aria-label="닫기">×</button>
       </div>
       <img id="modalImage" alt="설문 원본">
     </div>
