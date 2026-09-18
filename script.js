@@ -282,12 +282,15 @@ async function analyzeAll(){
     updateProgress(i, pages.length, `설문 ${i+1}/${pages.length} 분석 중`);
     await nextFrame();
     const normalized = normalizeCanvas(pages[i].canvas);
-    const aligned = alignCanvas(normalized);
-    const result = analyzePage(aligned);
+    const alignedResult = alignCanvas(normalized);
+    const aligned = alignedResult.canvas;
+    const result = analyzePage(aligned, alignedResult.meta);
 
     result.fileName = pages[i].file.name;
     result.page = pages[i].page;
     result.imageDataUrl = aligned.toDataURL('image/jpeg', .75);
+    result.alignment = alignedResult.meta;
+    result.reviewed = false;
     result.id = `${Date.now()}_${i}`;
 
     // 신규 수동 입력 필드
@@ -346,35 +349,118 @@ function normalizeCanvas(src){
 }
 
 function alignCanvas(src){
-  const srcCtx = src.getContext('2d',{willReadFrequently:true});
-  const srcData = srcCtx.getImageData(0,0,REF_W,REF_H).data;
+  // 스캔 오차를 단순 평행이동만으로 맞추지 않고
+  // 회전(-1.75~1.75°), 미세 배율, X/Y 이동을 함께 탐색한다.
+  const SMALL_W=310;
+  const SMALL_H=Math.round(REF_H*SMALL_W/REF_W);
 
-  let bestDx=0,bestDy=0,bestScore=Infinity;
-  for(let dy=-10;dy<=10;dy+=2){
-    for(let dx=-10;dx<=10;dx+=2){
-      let score=0,n=0;
-      for(let y=120;y<1550;y+=22){
-        for(let x=90;x<1150;x+=22){
-          const sx=x+dx,sy=y+dy;
-          if(sx<0||sy<0||sx>=REF_W||sy>=REF_H) continue;
-          const si=(sy*REF_W+sx)*4, ti=(y*REF_W+x)*4;
-          const sg=(srcData[si]+srcData[si+1]+srcData[si+2])/3;
-          const tg=(templatePixels[ti]+templatePixels[ti+1]+templatePixels[ti+2])/3;
-          if(tg<225){score+=Math.abs(sg-tg);n++;}
-        }
-      }
-      const avg=n?score/n:Infinity;
-      if(avg<bestScore){bestScore=avg;bestDx=dx;bestDy=dy;}
+  const templateSmall=document.createElement('canvas');
+  templateSmall.width=SMALL_W; templateSmall.height=SMALL_H;
+  const tctx=templateSmall.getContext('2d',{willReadFrequently:true});
+  const templateCanvas=document.createElement('canvas');
+  templateCanvas.width=REF_W; templateCanvas.height=REF_H;
+  templateCanvas.getContext('2d').putImageData(
+    new ImageData(new Uint8ClampedArray(templatePixels),REF_W,REF_H),0,0
+  );
+  tctx.drawImage(templateCanvas,0,0,SMALL_W,SMALL_H);
+
+  const scanSmall=document.createElement('canvas');
+  scanSmall.width=SMALL_W; scanSmall.height=SMALL_H;
+  scanSmall.getContext('2d').drawImage(src,0,0,SMALL_W,SMALL_H);
+
+  const td=tctx.getImageData(0,0,SMALL_W,SMALL_H).data;
+  const sd=scanSmall.getContext('2d',{willReadFrequently:true})
+    .getImageData(0,0,SMALL_W,SMALL_H).data;
+
+  const points=[];
+  for(let y=35;y<SMALL_H-25;y+=5){
+    for(let x=18;x<SMALL_W-18;x+=5){
+      const i=(y*SMALL_W+x)*4;
+      const tg=(td[i]+td[i+1]+td[i+2])/3;
+      if(tg<175) points.push([x,y,tg]);
     }
   }
 
-  if(bestDx===0&&bestDy===0) return src;
+  const cx=SMALL_W/2, cy=SMALL_H/2;
+  const sample=(x,y)=>{
+    const ix=Math.round(x),iy=Math.round(y);
+    if(ix<0||iy<0||ix>=SMALL_W||iy>=SMALL_H) return 255;
+    const i=(iy*SMALL_W+ix)*4;
+    return (sd[i]+sd[i+1]+sd[i+2])/3;
+  };
+  const score=(angle,scale,dx,dy)=>{
+    const rad=angle*Math.PI/180,cs=Math.cos(rad),sn=Math.sin(rad);
+    let total=0,n=0;
+    for(const [x,y,tg] of points){
+      const ux=x-cx,uy=y-cy;
+      const sx=cx+scale*(cs*ux-sn*uy)+dx;
+      const sy=cy+scale*(sn*ux+cs*uy)+dy;
+      total+=Math.abs(sample(sx,sy)-tg); n++;
+    }
+    return n?total/n:Infinity;
+  };
+
+  const baseScore=score(0,1,0,0);
+  let best={score:baseScore,angle:0,scale:1,dx:0,dy:0};
+
+  for(const angle of [-1.5,-1,-.5,0,.5,1,1.5]){
+    for(const scale of [.99,1,1.01]){
+      for(let dy=-4;dy<=4;dy+=2){
+        for(let dx=-4;dx<=4;dx+=2){
+          const v=score(angle,scale,dx,dy);
+          if(v<best.score) best={score:v,angle,scale,dx,dy};
+        }
+      }
+    }
+  }
+
+  const coarse={...best};
+  for(const angle of [coarse.angle-.25,coarse.angle,coarse.angle+.25]){
+    for(const scale of [coarse.scale-.005,coarse.scale,coarse.scale+.005]){
+      for(let dy=coarse.dy-1;dy<=coarse.dy+1;dy++){
+        for(let dx=coarse.dx-1;dx<=coarse.dx+1;dx++){
+          const v=score(angle,scale,dx,dy);
+          if(v<best.score) best={score:v,angle,scale,dx,dy};
+        }
+      }
+    }
+  }
+
+  // 작은 캔버스의 이동값을 원본 좌표로 환산한다.
+  const fullDx=best.dx*REF_W/SMALL_W;
+  const fullDy=best.dy*REF_H/SMALL_H;
+
+  // best는 "기준 양식 -> 스캔" 변환이므로 역변환해 스캔을 기준 양식에 맞춘다.
   const out=document.createElement('canvas');
-  out.width=REF_W;out.height=REF_H;
+  out.width=REF_W; out.height=REF_H;
   const ctx=out.getContext('2d',{willReadFrequently:true});
   ctx.fillStyle='white';ctx.fillRect(0,0,REF_W,REF_H);
-  ctx.drawImage(src,-bestDx,-bestDy);
-  return out;
+  ctx.save();
+  ctx.translate(REF_W/2,REF_H/2);
+  ctx.rotate(-best.angle*Math.PI/180);
+  ctx.scale(1/best.scale,1/best.scale);
+  ctx.translate(-REF_W/2-fullDx,-REF_H/2-fullDy);
+  ctx.drawImage(src,0,0);
+  ctx.restore();
+
+  const atBoundary=
+    Math.abs(best.angle)>=1.74 ||
+    best.scale<=.9851 || best.scale>=1.0149 ||
+    Math.abs(best.dx)>=4.99 || Math.abs(best.dy)>=4.99;
+
+  return {
+    canvas:out,
+    meta:{
+      score:best.score,
+      baseScore,
+      angle:best.angle,
+      scale:best.scale,
+      dx:fullDx,
+      dy:fullDy,
+      atBoundary,
+      lowQuality:best.score>32 || atBoundary
+    }
+  };
 }
 
 function analyzePage(canvas){
