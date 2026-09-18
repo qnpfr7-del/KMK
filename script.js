@@ -174,6 +174,7 @@ async function loadDefaultTemplate(){
   ctx.fillStyle='white'; ctx.fillRect(0,0,REF_W,REF_H);
   ctx.drawImage(img,0,0,REF_W,REF_H);
   await applyTemplateCanvas(canvas, '기본 template.png', false);
+  setTemplateStatus('사용 가능');
 }
 
 async function applyTemplateCanvas(canvas, name, persist){
@@ -687,7 +688,7 @@ function groupRecordsByProgram(confirmedOnly=false){
 
 function renderReview(){
   const filter=document.getElementById('reviewFilter').value;
-  const items=records.filter(r=>filter==='all'||r.warnings.length);
+  const items=records.filter(r=>filter==='all'||!recordIsConfirmed(r));
   const root=document.getElementById('reviewList');
 
   if(!items.length){
@@ -700,11 +701,13 @@ function renderReview(){
       <div class="review-head">
         <div>
           <strong>${escapeHtml(r.fileName)} ${r.page>1?`- ${r.page}p`:''}</strong>
-          <div class="help">${r.warnings.length?'검토 대상: '+r.warnings.join(', '):'자동 판독 완료'}</div>
+          <div class="help">${r.reviewed?'사용자가 검토 완료':(r.warnings.length?'검토 대상: '+r.warnings.join(', '):'자동 판독 완료')}</div>
+          ${r.alignment?`<div class="help">정렬: 회전 ${r.alignment.angle.toFixed(2)}° · 이동 X ${r.alignment.dx.toFixed(1)}px / Y ${r.alignment.dy.toFixed(1)}px</div>`:''}
         </div>
         <div>
-          <span class="${r.warnings.length?'warning-badge':'ok-badge'}">${r.warnings.length?'검토 필요':'정상'}</span>
+          <span class="${recordIsConfirmed(r)?'ok-badge':'warning-badge'}">${r.reviewed?'검토 완료':(r.warnings.length?'검토 필요':'정상')}</span>
           <button class="original-btn" onclick="showOriginal('${r.id}')">원본 보기</button>
+          ${r.warnings.length&&!r.reviewed?`<button class="original-btn" onclick="markReviewed('${r.id}')">검토 완료</button>`:''}
         </div>
       </div>
 
@@ -765,9 +768,8 @@ function updateAnswer(id,path,value){
     const [key,idx]=path.split('.');
     r[key][Number(idx)]=value;
   }
-  r.warnings=[];
+  r.reviewed=false;
   renderResults();
-  renderReview();
 }
 window.updateAnswer=updateAnswer;
 
@@ -775,9 +777,18 @@ function updateQ4(id,value,checked){
   const r=records.find(x=>x.id===id);if(!r)return;
   if(checked&&!r.q4.includes(value))r.q4.push(value);
   if(!checked)r.q4=r.q4.filter(v=>v!==value);
+  r.reviewed=false;
   renderResults();
 }
 window.updateQ4=updateQ4;
+
+function markReviewed(id){
+  const r=records.find(x=>x.id===id);if(!r)return;
+  r.reviewed=true;
+  renderResults();
+  renderReview();
+}
+window.markReviewed=markReviewed;
 
 function showOriginal(id){
   const r=records.find(x=>x.id===id);if(!r)return;
@@ -831,12 +842,14 @@ function downloadCSV(){
     '파일명','페이지','프로그램명','성별',
     ...QUESTION_LABELS.q2.map((_,i)=>`2-${i+1}`),
     ...QUESTION_LABELS.q3.map((_,i)=>`3-${i+1}`),
-    '희망프로그램','기타의견','검토필요'
+    '희망프로그램','기타의견','검토필요','집계상태','정렬각도','정렬X','정렬Y'
   ];
   const rows=records.map(r=>[
     r.fileName,r.page,r.programName,r.gender,
     ...r.q2,...r.q3,
-    r.q4.join('|'),r.comment,r.warnings.join('|')
+    r.q4.join('|'),r.comment,r.warnings.join('|'),
+    recordIsConfirmed(r)?'유효':'검토대기',
+    r.alignment?.angle??'',r.alignment?.dx??'',r.alignment?.dy??''
   ]);
   const csv='\uFEFF'+[headers,...rows].map(row=>row.map(csvCell).join(',')).join('\r\n');
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
