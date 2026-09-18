@@ -463,7 +463,7 @@ function alignCanvas(src){
   };
 }
 
-function analyzePage(canvas){
+function analyzePage(canvas,alignmentMeta={}){
   const ctx=canvas.getContext('2d',{willReadFrequently:true});
   const scan=ctx.getImageData(0,0,REF_W,REF_H).data;
   const threshold=Number(document.getElementById('threshold').value);
@@ -505,11 +505,29 @@ function analyzePage(canvas){
   const q4=REGIONS.q4.filter((r,i)=>q4Scores[i]>=q4Cut).map(r=>r.label);
 
   const warnings=[];
+  if(alignmentMeta.lowQuality) warnings.push('정렬');
   if(genderPick.warning) warnings.push('성별');
   q2Meta.forEach((m,i)=>{if(m.pick.warning) warnings.push(`2-${i+1}`);});
   q3Meta.forEach((m,i)=>{if(m.pick.warning) warnings.push(`3-${i+1}`);});
 
-  return {gender,q2,q3,q4,warnings,genderScores,q2Meta,q3Meta,q4Scores};
+  // 4번은 복수 선택을 허용하지만, 정렬 잔상이 임계값 바로 아래/위에 몰리면
+  // 실제 복수응답과 오검출을 구분하기 어렵다. 이런 경우 자동 확정하지 않는다.
+  const q4Rejected=q4Scores.filter((_,i)=>!q4.includes(REGIONS.q4[i].label));
+  const q4MaxRejected=q4Rejected.length?Math.max(...q4Rejected):0;
+  const q4MinSelected=q4.length
+    ? Math.min(...q4Scores.filter((_,i)=>q4.includes(REGIONS.q4[i].label)))
+    : 0;
+  const q4Ambiguous =
+    (q4.length===0 && q4Peak>=threshold*.65) ||
+    (q4.length>0 && q4MaxRejected>=q4Cut*.85) ||
+    (q4.length>0 && (q4MinSelected-q4Cut)<Math.max(.12,q4Peak*.08));
+  if(q4Ambiguous) warnings.push('4번');
+
+  return {
+    gender,q2,q3,q4,warnings,
+    genderScores,q2Meta,q3Meta,q4Scores,
+    q4Cut,q4Ambiguous,alignmentMeta
+  };
 }
 
 function addedInkScore(scan,r){
@@ -538,23 +556,32 @@ function pickOne(scores,threshold){
   return {index:top.i,warning:close};
 }
 
+function recordIsConfirmed(r){
+  return !!r && (r.warnings.length===0 || r.reviewed===true);
+}
+
+function confirmedRecords(){
+  return records.filter(recordIsConfirmed);
+}
+
 function renderResults(){
   const total=records.length;
-  const warningCount=records.filter(r=>r.warnings.length).length;
+  const warningCount=records.filter(r=>!recordIsConfirmed(r)).length;
+  const confirmed=confirmedRecords();
   const namedCount=records.filter(r=>r.programName.trim()).length;
   const commentCount=records.filter(r=>r.comment.trim()).length;
 
   document.getElementById('stats').innerHTML=[
     stat('총 설문지',total+'부'),
-    stat('프로그램명 입력',namedCount+'부'),
-    stat('검토 필요',warningCount+'부'),
-    stat('기타 의견 입력',commentCount+'건')
+    stat('유효 집계',confirmed.length+'부'),
+    stat('검토 대기',warningCount+'부'),
+    stat('기타 의견',commentCount+'건')
   ].join('');
 
-  const g=countValues(records.map(r=>r.gender),['남','여','']);
+  const g=countValues(confirmed.map(r=>r.gender),['남','여','']);
   document.getElementById('genderResult').innerHTML=bars([
     ['남',g['남']||0],['여',g['여']||0],['미응답/미판독',g['']||0]
-  ],Math.max(1,total));
+  ],Math.max(1,confirmed.length));
 
   renderQ2Integrated();
   renderQ3ByProgram();
@@ -564,16 +591,17 @@ function renderResults(){
 
 function renderQ2Integrated(){
   // 2-1~2-4를 모두 한 배열로 펼쳐 통합 집계
-  const all=records.flatMap(r=>r.q2);
+  const source=confirmedRecords();
+  const all=source.flatMap(r=>r.q2);
   const counts=countValues(all,[...SCALE_LABELS,'']);
   const answered=SCALE_LABELS.reduce((sum,k)=>sum+(counts[k]||0),0);
-  const totalPossible=records.length*4;
+  const totalPossible=source.length*4;
 
   document.getElementById('q2IntegratedResult').innerHTML = `
     <div class="stats" style="margin-bottom:14px">
       ${stat('유효 응답 수',answered+'건')}
       ${stat('전체 가능 응답',totalPossible+'건')}
-      ${stat('미응답/미판독',(counts['']||0)+'건')}
+      ${stat('제외/미확정',(records.length-source.length)+'부')}
       ${stat('긍정 응답률',answered?(((counts['매우 만족']||0)+(counts['만족']||0))/answered*100).toFixed(1)+'%':'-')}
     </div>
     ${bars(SCALE_LABELS.map(k=>[k,counts[k]||0]),Math.max(1,answered))}
@@ -582,7 +610,7 @@ function renderQ2Integrated(){
 
 function renderQ3ByProgram(){
   const root=document.getElementById('q3ByProgramResult');
-  const groups=groupRecordsByProgram();
+  const groups=groupRecordsByProgram(true);
 
   if(!Object.keys(groups).length){
     root.innerHTML='<div class="empty-box">응답 검토 화면에서 프로그램명을 입력하면 여기에 프로그램별 통계가 표시됩니다.</div>';
@@ -607,10 +635,11 @@ function renderQ3ByProgram(){
 
 function renderQ4(){
   const counts=Object.fromEntries(QUESTION_LABELS.q4.map(x=>[x,0]));
-  records.forEach(r=>r.q4.forEach(v=>{if(v in counts)counts[v]++;}));
+  const source=confirmedRecords();
+  source.forEach(r=>r.q4.forEach(v=>{if(v in counts)counts[v]++;}));
   document.getElementById('q4Result').innerHTML=bars(
     QUESTION_LABELS.q4.map(v=>[v,counts[v]]),
-    Math.max(1,records.length)
+    Math.max(1,source.length)
   );
 }
 
@@ -644,9 +673,10 @@ function renderCommentsByProgram(){
   `).join('');
 }
 
-function groupRecordsByProgram(){
+function groupRecordsByProgram(confirmedOnly=false){
   const groups={};
-  records.forEach(r=>{
+  const source=confirmedOnly?confirmedRecords():records;
+  source.forEach(r=>{
     const name=r.programName.trim();
     if(!name)return;
     if(!groups[name])groups[name]=[];
