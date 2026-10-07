@@ -103,7 +103,19 @@ const SurveyEngine = (() => {
     for(let y=h-2;y>=0;y--)for(let x=w-2;x>0;x--){const i=y*w+x;d[i]=Math.min(d[i],d[i+1]+1,d[i+w]+1,d[i+w+1]+1.414,d[i+w-1]+1.414);}
     return d;
   }
+  function validRect(r){return !!r&&['x1','y1','x2','y2'].every(k=>Number.isFinite(r[k]))&&r.x2>r.x1&&r.y2>r.y1;}
+  function answerQuestions(schema){
+    const questions=schema.questions.filter(q=>q.type!=='text');
+    for(const q of questions){
+      if(!Array.isArray(q.options)||!q.options.length)throw new Error(`「${q.label}」의 선택지가 없습니다. 문항 구조 · 응답 영역 설정에서 확인하고 저장해주세요.`);
+      for(const o of q.options){
+        if(!validRect(o.rect)||(o.parts!=null&&(!Array.isArray(o.parts)||o.parts.some(r=>!validRect(r)))))throw new Error(`「${q.label} / ${o.label}」의 응답 영역이 없거나 올바르지 않습니다. 문항 구조 · 응답 영역 설정에서 영역을 지정한 뒤 저장해주세요.`);
+      }
+    }
+    return questions;
+  }
   function align(src,template,schema){
+    const questions=answerQuestions(schema);
     // Match printed grid lines; question wording and handwriting are excluded from registration.
     const size=620,ratio=size/W,h=Math.round(H*ratio);
     const small=canvas(size,h);small.getContext('2d').drawImage(src,0,0,size,h);
@@ -115,13 +127,13 @@ const SurveyEngine = (() => {
       for(let x=r.x1+10;x<r.x2-10;x+=14)points.push([(x-W/2)*ratio,(r.y-H/2)*ratio]);
     }
     // Include vertical grid lines to constrain horizontal translation and independent X scale.
-    for(const q of schema.questions){if(q.type==='text')continue;for(const o of q.options){
+    for(const q of questions){for(const o of q.options){
       const r=o.rect;
       for(const x of [r.x1-7,r.x2+7])for(let y=r.y1+3;y<r.y2;y+=10){
         if(tg[Math.round(y)*W+Math.round(x)]<160)points.push([(x-W/2)*ratio,(y-H/2)*ratio]);
       }
     }}
-    const answerRects=schema.questions.flatMap(q=>q.options.map(o=>o.rect));
+    const answerRects=questions.flatMap(q=>q.options.map(o=>o.rect));
     for(let y=60;y<H-60;y+=9)for(let x=60;x<W-60;x+=9)if(tg[y*W+x]<140&&!answerRects.some(r=>x>=r.x1-8&&x<=r.x2+8&&y>=r.y1-8&&y<=r.y2+8))points.push([(x-W/2)*ratio,(y-H/2)*ratio]);
     if(points.length<50){
       points=[];for(let y=60;y<H-70;y+=12)for(let x=50;x<W-50;x+=12)if(tg[y*W+x]<140)points.push([(x-W/2)*ratio,(y-H/2)*ratio]);
@@ -173,12 +185,13 @@ const SurveyEngine = (() => {
     return out;
   }
   function compare(c,template,schema){
+    const questions=answerQuestions(schema);
     const scan=paperCorrect(gray(c.getContext('2d').getImageData(0,0,W,H).data));
     const base=gray(template.getContext('2d').getImageData(0,0,W,H).data);
     const mask=new Uint8Array(W*H),areas=new Uint8Array(W*H);
     // Allow four pixels around original printed ink for resampling and print thickness.
     for(let y=4;y<H-4;y++)for(let x=4;x<W-4;x++)if(base[y*W+x]<215){for(let dy=-4;dy<=4;dy++)for(let dx=-4;dx<=4;dx++)mask[(y+dy)*W+x+dx]=1;}
-    for(const q of schema.questions)for(const o of q.options){const r=o.rect;
+    for(const q of questions)for(const o of q.options){const r=o.rect;
       for(let y=Math.max(0,Math.ceil(r.y1));y<Math.min(H,r.y2);y++)areas.fill(1,y*W+Math.max(0,Math.ceil(r.x1)),y*W+Math.min(W,Math.ceil(r.x2)));
     }
     const ink=new Uint8Array(W*H);
@@ -193,7 +206,7 @@ const SurveyEngine = (() => {
       if(tail<6)for(let j=0;j<tail;j++)ink[queue[j]]=0;
     }
     const dist=distance(scan,W,H),quality={};
-    for(const q of schema.questions){if(q.type==='text')continue;let sum=0,n=0,bad=0;
+    for(const q of questions){let sum=0,n=0,bad=0;
       // Inspect original print near EACH answer region. A good page average cannot hide a bad row.
       for(const o of q.options){const r=o.rect;
         for(let y=Math.max(1,Math.floor(r.y1-10));y<Math.min(H-1,r.y2+10);y+=3)for(let x=Math.max(1,Math.floor(r.x1-10));x<Math.min(W-1,r.x2+10);x+=3){
@@ -223,7 +236,7 @@ const SurveyEngine = (() => {
           }
           return n?count/n*100:0;
         };
-        return (o.parts||[o.rect]).map(regionScore);
+        return (o.parts?.length?o.parts:[o.rect]).map(regionScore);
       });
       const labelScores=partScores.filter(s=>s.length>1).map(s=>s[1]).sort((a,b)=>a-b);
       const labelCut=Math.max(threshold*3,(labelScores[Math.floor(labelScores.length/2)]||0)+threshold*2);

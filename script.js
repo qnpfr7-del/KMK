@@ -86,8 +86,8 @@ function renderEditor(){
  $('cancelSchema').onclick=closeEditor;
  $('confirmSchema').onclick=async()=>{
   if(!draft.questions.length)return alert('문항을 하나 이상 등록해주세요.');
-  for(const q of draft.questions){if(!q.label.trim())return alert('문항명을 입력해주세요.');if(q.type!=='text'&&(!q.options.length||new Set(q.options.map(o=>o.label)).size!==q.options.length||q.options.some(o=>!o.rect||o.rect.x2-o.rect.x1<5||o.rect.y2-o.rect.y1<5)))return alert('선택지 이름과 응답 영역을 모두 확인해주세요.');}
-  const next=structuredClone(draft);next.confirmed=true;next.questions.forEach(q=>delete q.typeNeedsReview);
+  for(const q of draft.questions){if(!q.label.trim())return alert('문항명을 입력해주세요.');if(q.type!=='text'&&(!q.options.length||new Set(q.options.map(o=>o.label)).size!==q.options.length||q.options.some(o=>!o.rect||!['x1','y1','x2','y2'].every(k=>Number.isFinite(o.rect[k]))||o.rect.x2-o.rect.x1<5||o.rect.y2-o.rect.y1<5)))return alert('선택지 이름과 응답 영역을 모두 확인해주세요.');}
+  const next=structuredClone(draft);next.confirmed=true;next.questions.forEach(q=>{delete q.typeNeedsReview;if(q.type==='text')q.options=[];});
   try{await dbOperation('put',{name:templateName,schema:next,dataUrl:templateCanvas.toDataURL('image/png')});schema=next;records=[];closeEditor();displayTemplate();setTemplateStatus('사용 가능');updateReady();renderResults();renderReview();}catch(e){alert('양식 저장 실패: '+e.message);}
  };
  if(selectedRegion)root.querySelector(`[data-region="${selectedRegion.join(',')}"]`)?.focus({preventScroll:true});
