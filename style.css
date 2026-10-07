@@ -801,4 +801,16 @@ th{
   .stats{grid-template-columns:1fr}
   .button-row{flex-direction:column}
   .button-row>*{width:100%}
-}
+}.schema-actions {display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:18px;font-size:13px;color:#64748b}
+#schemaEditor {margin-top:18px;border-top:1px solid #e6e9f2;padding-top:16px}
+.schema-question {border:1px solid #e6e9f2;border-radius:12px;padding:12px;margin:12px 0;background:#fafbff}
+.schema-row {display:flex;gap:8px;flex-wrap:wrap}.schema-row input {flex:1;min-width:160px}
+.schema-question input,.schema-question select,.schema-question textarea {padding:9px;border:1px solid #d8ddeb;border-radius:7px;max-width:100%;font:inherit}
+.schema-question textarea {display:block;width:100%;min-height:85px;margin-top:6px}
+.schema-question label {font-size:12px;display:block;margin-top:9px}
+.region-buttons {display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.schema-question button,.region-buttons button {border:1px solid #d8ddeb;background:white;padding:6px 10px;border-radius:6px;cursor:pointer}
+.region-buttons button.selected {background:#7246ff;color:white}
+#schemaEditor .button-row {flex-wrap:wrap}#regionCanvas {width:100%;height:auto;display:block;border:1px solid #d8ddeb;touch-action:none;margin-top:12px;cursor:crosshair}
+.type-note {font-size:12px;color:#9a5700}.review-card input:not([type=checkbox]),.review-card textarea {width:100%}
+#questionResults h3 {font-size:18px;line-height:1.6}#questionResults h4 {margin:10px 0 16px}.result-card-head {flex-wrap:wrap}

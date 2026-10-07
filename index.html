@@ -79,13 +79,15 @@
               </div>
             </div>
 
+            <div class="schema-actions"><button class="secondary-btn compact" id="editSchemaBtn">문항 구조 · 응답 영역 설정</button><span id="schemaSummary"></span></div>
+            <div id="schemaEditor" hidden></div>
             <div id="templatePreviewWrap" class="template-preview-wrap" hidden>
               <img id="templatePreview" alt="기준 설문 양식 미리보기">
             </div>
 
             <p class="card-note">
-              문구만 변경되고 표와 선택지 위치가 같다면 새 양식을 그대로 사용할 수 있습니다.
-              표 구조가 바뀌면 응답 좌표도 다시 설정해야 합니다.
+              텍스트가 포함된 원본 PDF에서 문항·선택지·표 위치를 읽습니다. 문항 구조를 확인한 뒤 사용하세요.
+              한 페이지 원본을 지원하며, 스캔마다 문항 내용이 다르면 해당 프로그램의 원본을 따로 등록해주세요.
             </p>
           </section>
 
@@ -165,43 +167,8 @@
 
         <div class="stats" id="stats"></div>
 
-        <section class="result-card">
-          <div class="result-card-head">
-            <div><span>01</span><h3>참여자 정보</h3></div>
-          </div>
-          <div id="genderResult"></div>
-        </section>
+        <div id="questionResults"></div>
 
-        <section class="result-card">
-          <div class="result-card-head">
-            <div><span>02</span><h3>강의 운영 만족도</h3></div>
-            <p>2-1~2-4 응답 통합 집계</p>
-          </div>
-          <div id="q2IntegratedResult"></div>
-        </section>
-
-        <section class="result-card">
-          <div class="result-card-head">
-            <div><span>03</span><h3>프로그램별 강의 만족도</h3></div>
-            <p>응답 검토에서 입력한 프로그램명 기준</p>
-          </div>
-          <div id="q3ByProgramResult"></div>
-        </section>
-
-        <section class="result-card">
-          <div class="result-card-head">
-            <div><span>04</span><h3>향후 듣고 싶은 프로그램</h3></div>
-          </div>
-          <div id="q4Result"></div>
-        </section>
-
-        <section class="result-card">
-          <div class="result-card-head">
-            <div><span>05</span><h3>기타 의견 · 건의사항</h3></div>
-            <p>프로그램별 의견 모아보기</p>
-          </div>
-          <div id="commentsByProgramResult"></div>
-        </section>
       </section>
 
       <section id="view-review" class="view">
@@ -242,6 +209,7 @@
     </div>
   </div>
 
+  <script src="engine.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

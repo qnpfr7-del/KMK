@@ -1,823 +1,114 @@
-const REF_W = 1240;
-const REF_H = 1753;
-const PDFJS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs';
-const PDFJS_WORKER_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs';
-
-const SCALE_LABELS = ['매우 만족','만족','보통','불만족','매우 불만족'];
-const QUESTION_LABELS = {
-  q2: [
-    '강의에 대한 전반적인 만족도',
-    '참여 인원이 적당했다고 생각하십니까?',
-    '운영시간이 적절하다고 생각하십니까?',
-    '프로그램 과정에 만족하십니까?'
-  ],
-  q3: [
-    '교육 내용이 적절하다고 생각하십니까?',
-    '강사 선정이 적절하다고 생각하십니까?',
-    '네트워크 활성화에 도움이 되었습니까?'
-  ],
-  q4: ['취업지원','창업지원','진로설계','자기계발','문화예술','네트워크','기타']
-};
-
-const REGIONS = {
-  gender: [
-    {label:'남', x1:145, y1:394, x2:275, y2:432},
-    {label:'여', x1:340, y1:394, x2:465, y2:432}
-  ],
-  q2: {
-    rows: [[603,636],[636,672],[672,709],[709,745]],
-    cols: [[436,572],[572,708],[708,843],[843,979],[979,1115]]
-  },
-  q3: {
-    rows: [[901,943],[943,986],[986,1028]],
-    cols: [[436,572],[572,708],[708,843],[843,979],[979,1115]]
-  },
-  q4: [
-    {label:'취업지원', x1:124, y1:1135, x2:366, y2:1177},
-    {label:'창업지원', x1:620, y1:1135, x2:862, y2:1177},
-    {label:'진로설계', x1:124, y1:1177, x2:366, y2:1219},
-    {label:'자기계발', x1:620, y1:1177, x2:862, y2:1219},
-    {label:'문화예술', x1:124, y1:1219, x2:366, y2:1261},
-    {label:'네트워크', x1:620, y1:1219, x2:862, y2:1261},
-    {label:'기타', x1:124, y1:1261, x2:366, y2:1304}
-  ]
-};
-
-let selectedFiles = [];
-let records = [];
-let templatePixels = null;
-let pdfjsLib = null;
-
-document.addEventListener('DOMContentLoaded', async () => {
-  bindUI();
-  await loadTemplate();
-});
-
+const REF_W=SurveyEngine.W,REF_H=SurveyEngine.H;
+let selectedFiles=[],records=[],templateCanvas=null,schema=null,pdfjsLib=null,busy=false,templateName='',draft=null,selectedRegion=null;
+const $=id=>document.getElementById(id);
+const SCALE_LABELS=['매우 만족','만족','보통','불만족','매우 불만족'];
+document.addEventListener('DOMContentLoaded',async()=>{bindUI();try{await loadTemplate();}catch(e){setTemplateStatus('원본 PDF 등록 필요');$('schemaSummary').textContent=e.message;}});
 function bindUI(){
-  const input = document.getElementById('fileInput');
-  input.addEventListener('change', e => setFiles([...e.target.files]));
-
-  const dz = document.getElementById('dropZone');
-  ['dragenter','dragover'].forEach(n => dz.addEventListener(n, e => {
-    e.preventDefault(); dz.classList.add('drag');
-  }));
-  ['dragleave','drop'].forEach(n => dz.addEventListener(n, e => {
-    e.preventDefault(); dz.classList.remove('drag');
-  }));
-  dz.addEventListener('drop', e => setFiles([...e.dataTransfer.files].filter(validFile)));
-
-  document.getElementById('threshold').addEventListener('input', e => {
-    document.getElementById('thresholdText').textContent = Number(e.target.value).toFixed(2) + '%';
-  });
-
-  document.getElementById('analyzeBtn').addEventListener('click', analyzeAll);
-  document.getElementById('resetBtn').addEventListener('click', resetAll);
-  document.getElementById('downloadCsvBtn').addEventListener('click', downloadCSV);
-  document.getElementById('reviewFilter').addEventListener('change', renderReview);
-
-  const templateInput = document.getElementById('templateFileInput');
-  if(templateInput) templateInput.addEventListener('change', async e => {
-    const file = e.target.files?.[0];
-    if(!file) return;
-    try{
-      setTemplateStatus('처리 중');
-      const canvas = file.type === 'application/pdf'
-        ? (await pdfToCanvases(file))[0]
-        : await imageFileToCanvas(file);
-      const normalized = normalizeCanvas(canvas);
-      await applyTemplateCanvas(normalized, file.name, true);
-      setTemplateStatus('사용 중');
-      alert('새 기준 설문 양식이 이 컴퓨터에 저장되었습니다.');
-    }catch(err){
-      console.error(err);
-      setTemplateStatus('오류');
-      alert('기준 양식을 불러오지 못했습니다: ' + err.message);
-    }finally{
-      e.target.value = '';
-    }
-  });
-
-  const resetTemplateBtn = document.getElementById('resetTemplateBtn');
-  if(resetTemplateBtn) resetTemplateBtn.addEventListener('click', async () => {
-    try{
-      setTemplateStatus('복원 중');
-      await deleteStoredTemplate();
-      await loadDefaultTemplate();
-      setTemplateStatus('기본 양식');
-      alert('기본 template.png 양식으로 복원했습니다.');
-    }catch(err){
-      console.error(err);
-      setTemplateStatus('오류');
-      alert('기본 양식 복원에 실패했습니다: ' + err.message);
-    }
-  });
-  document.getElementById('closeModal').addEventListener('click', closeModal);
-  document.getElementById('imageModal').addEventListener('click', e => {
-    if(e.target.id === 'imageModal') closeModal();
-  });
-
-  document.querySelectorAll('.nav').forEach(btn => {
-    btn.addEventListener('click', () => switchView(btn.dataset.view));
-  });
+ $('fileInput').onchange=e=>setFiles([...e.target.files]);
+ for(const n of ['dragenter','dragover'])$('dropZone').addEventListener(n,e=>{e.preventDefault();$('dropZone').classList.add('drag');});
+ for(const n of ['dragleave','drop'])$('dropZone').addEventListener(n,e=>{e.preventDefault();$('dropZone').classList.remove('drag');});
+ $('dropZone').addEventListener('drop',e=>setFiles([...e.dataTransfer.files]));
+ $('threshold').oninput=e=>$('thresholdText').textContent=Number(e.target.value).toFixed(2)+'%';
+ $('analyzeBtn').onclick=analyzeAll;$('resetBtn').onclick=resetAll;$('downloadCsvBtn').onclick=downloadCSV;$('reviewFilter').onchange=renderReview;
+ $('templateFileInput').onchange=async e=>{const file=e.target.files[0];if(!file)return;busy=true;updateReady();setTemplateStatus('처리 중');try{
+   let next;if(file.type==='application/pdf')next=await SurveyEngine.parsePdf(file,await ensurePdfJs());
+   else next={canvas:SurveyEngine.normalize(await imageFileToCanvas(file)),schema:{version:2,questions:[],confirmed:false}};
+   // Commit a template only after parsing succeeds. Existing answers cannot follow a different schema.
+   templateCanvas=next.canvas;schema=next.schema;templateName=file.name;records=[];
+   displayTemplate();renderResults();renderReview();openEditor();setTemplateStatus('문항 확인 필요');
+ }catch(err){alert(err.message);setTemplateStatus(schema?.confirmed?'사용 가능':'원본 PDF 등록 필요');}finally{busy=false;updateReady();e.target.value='';}};
+ $('resetTemplateBtn').onclick=async()=>{if(busy)return;await dbOperation('delete');records=[];await loadDefaultTemplate();renderResults();renderReview();};
+ $('editSchemaBtn').onclick=()=>{if(!templateCanvas)return alert('원본 양식을 먼저 등록해주세요.');openEditor();};
+ $('closeModal').onclick=closeModal;$('imageModal').onclick=e=>{if(e.target.id==='imageModal')closeModal();};
+ document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
 }
-
-function validFile(f){
-  return f.type === 'application/pdf' || f.type.startsWith('image/');
+function validFile(f){return f.type==='application/pdf'||/^image\/(png|jpeg)$/.test(f.type);}
+function setFiles(files){if(busy)return;selectedFiles=files.filter(validFile);$('fileCount').textContent=selectedFiles.length+'개';$('fileList').innerHTML=selectedFiles.length?selectedFiles.map(f=>`<div class="file-item"><span>${escapeHtml(f.name)}</span><span>${formatBytes(f.size)}</span></div>`).join(''):'아직 선택된 파일이 없습니다.';updateReady();}
+function updateReady(){ $('analyzeBtn').disabled=busy||!selectedFiles.length||!schema?.confirmed||!templateCanvas; $('templateFileInput').disabled=busy;$('resetTemplateBtn').disabled=busy;$('resetBtn').disabled=busy;$('editSchemaBtn').disabled=busy;}
+async function ensurePdfJs(){if(!pdfjsLib){pdfjsLib=await import('./vendor/pdf.mjs');pdfjsLib.GlobalWorkerOptions.workerSrc='./vendor/pdf.worker.mjs';}return pdfjsLib;}
+async function dbOperation(op,value){
+ const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('SurveyCounterDB',1);r.onupgradeneeded=()=>r.result.createObjectStore('settings');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
+ return new Promise((resolve,reject)=>{const t=db.transaction('settings',op==='get'?'readonly':'readwrite'),s=t.objectStore('settings');let result;
+ const r=op==='get'?s.get('activeTemplate'):op==='delete'?s.delete('activeTemplate'):s.put(value,'activeTemplate');r.onsuccess=()=>result=r.result;t.oncomplete=()=>{db.close();resolve(result);};t.onerror=()=>{db.close();reject(t.error);};});
 }
-
-function setFiles(files){
-  selectedFiles = files.filter(validFile);
-  const list = document.getElementById('fileList');
-  document.getElementById('fileCount').textContent = selectedFiles.length + '개';
-  document.getElementById('analyzeBtn').disabled = selectedFiles.length === 0 || !templatePixels;
-
-  if(!selectedFiles.length){
-    list.className = 'file-list empty-box';
-    list.textContent = '아직 선택된 파일이 없습니다.';
-    return;
-  }
-
-  list.className = 'file-list';
-  list.innerHTML = selectedFiles.map(f => `
-    <div class="file-item">
-      <span>${escapeHtml(f.name)}</span>
-      <span>${formatBytes(f.size)}</span>
-    </div>
-  `).join('');
-}
-
-async function loadTemplate(){
-  try{
-    const saved = await getStoredTemplate();
-    if(saved?.dataUrl){
-      const img = await loadImage(saved.dataUrl);
-      const canvas = document.createElement('canvas');
-      canvas.width = REF_W; canvas.height = REF_H;
-      const ctx = canvas.getContext('2d', {willReadFrequently:true});
-      ctx.fillStyle='white'; ctx.fillRect(0,0,REF_W,REF_H);
-      ctx.drawImage(img,0,0,REF_W,REF_H);
-      await applyTemplateCanvas(canvas, saved.name || '저장된 기준 양식', false);
-      setTemplateStatus('사용 중');
-      return;
-    }
-  }catch(err){
-    console.warn('저장된 기준 양식 복원 실패', err);
-  }
-  await loadDefaultTemplate();
-}
-
+async function loadTemplate(){const saved=await dbOperation('get');if(saved?.schema?.version===2){templateCanvas=await imageURLToCanvas(saved.dataUrl);schema=saved.schema;templateName=saved.name;displayTemplate();setTemplateStatus(schema.confirmed?'사용 가능':'문항 확인 필요');updateReady();}else await loadDefaultTemplate();}
 async function loadDefaultTemplate(){
-  const img = await loadImage('template.png');
-  const canvas = document.createElement('canvas');
-  canvas.width = REF_W; canvas.height = REF_H;
-  const ctx = canvas.getContext('2d', {willReadFrequently:true});
-  ctx.fillStyle='white'; ctx.fillRect(0,0,REF_W,REF_H);
-  ctx.drawImage(img,0,0,REF_W,REF_H);
-  await applyTemplateCanvas(canvas, '기본 template.png', false);
-  setTemplateStatus('사용 가능');
+ // Legacy raster templates contain no text geometry: require registration rather than silently reusing old fixed coordinates.
+ templateCanvas=await imageURLToCanvas('template.png');templateName='기본 이미지 양식';schema={version:2,questions:[],confirmed:false};displayTemplate();$('schemaSummary').textContent='원본 PDF를 등록하거나 문항·응답 영역을 직접 설정하세요.';setTemplateStatus('원본 PDF 등록 필요');updateReady();
 }
-
-async function applyTemplateCanvas(canvas, name, persist){
-  const ctx = canvas.getContext('2d', {willReadFrequently:true});
-  templatePixels = ctx.getImageData(0,0,REF_W,REF_H).data;
-
-  const nameInput = document.getElementById('templateName');
-  if(nameInput) nameInput.value = name;
-
-  const preview = document.getElementById('templatePreview');
-  const previewWrap = document.getElementById('templatePreviewWrap');
-  if(preview && previewWrap){
-    preview.src = canvas.toDataURL('image/jpeg', .82);
-    previewWrap.hidden = false;
-  }
-
-  if(persist){
-    const dataUrl = canvas.toDataURL('image/png');
-    await saveStoredTemplate({name, dataUrl, savedAt:new Date().toISOString()});
-  }
-
-  const analyzeBtn = document.getElementById('analyzeBtn');
-  if(analyzeBtn) analyzeBtn.disabled = selectedFiles.length === 0 || !templatePixels;
+async function imageURLToCanvas(url){const img=await loadImage(url),c=document.createElement('canvas');c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext('2d').drawImage(img,0,0);return SurveyEngine.normalize(c);}
+function displayTemplate(){ $('templateName').value=templateName;$('templatePreview').src=templateCanvas.toDataURL('image/jpeg',.85);$('templatePreviewWrap').hidden=false;$('schemaSummary').textContent=`${schema.questions.length}개 문항 · ${schema.confirmed?'확인 완료':'확인 필요'}`;}
+function setTemplateStatus(text){$('templateStatus').textContent=text;$('templateStatus').className='status-badge '+(text.includes('사용')?'success':text.includes('처리')?'loading':'error');}
+function openEditor(){draft=structuredClone(schema);selectedRegion=null;renderEditor();}
+function renderEditor(){
+ const root=$('schemaEditor');root.hidden=false;
+ root.innerHTML=`<p class="card-note">문항명·응답 방식·선택지를 확인하세요. 영역 버튼을 선택하고 아래 원본에서 드래그하면 위치를 수정할 수 있습니다. 양식 저장 시 이전 집계는 초기화됩니다. 프로그램마다 문항 내용이 다르면 해당 원본으로 별도 분석하세요.</p>
+ <div class="schema-questions">${draft.questions.map((q,i)=>`<div class="schema-question"><div class="schema-row"><input aria-label="문항명" data-q="${i}" data-field="label" value="${escapeAttr(q.label)}"><select aria-label="응답 방식" data-q="${i}" data-field="type">${[['single','단일 선택'],['multiple','복수 선택'],['text','자유 의견']].map(([v,l])=>`<option value="${v}" ${v===q.type?'selected':''}>${l}</option>`).join('')}</select><button data-remove="${i}" type="button">삭제</button></div>${q.typeNeedsReview?'<p class="type-note">복수응답 여부가 원본에 명시되지 않았습니다. 응답 방식을 확인해주세요.</p>':''}${q.type!=='text'?`<label>선택지 (한 줄에 하나)<textarea data-q="${i}" data-field="options">${escapeHtml(q.options.map(o=>o.label).join('\n'))}</textarea></label><div class="region-buttons">${q.options.map((o,j)=>`<button type="button" data-region="${i},${j}" class="${selectedRegion?.[0]===i&&selectedRegion?.[1]===j?'selected':''}">${escapeHtml(o.label)} 영역 ${o.rect?'✓':'미설정'}</button>`).join('')}</div>`:'<p class="card-note">필기 의견은 원본을 보고 직접 입력합니다.</p>'}</div>`).join('')}</div>
+ <div class="button-row"><button id="addQuestion" class="secondary-btn">문항 추가</button><button id="confirmSchema" class="primary-btn">이 문항 구조로 저장</button><button id="cancelSchema" class="secondary-btn">취소</button></div><p id="regionHelp" class="card-note">${selectedRegion?'선택한 응답 영역을 원본에서 드래그하세요.':'영역 버튼을 누르면 선택지 위치를 표시합니다.'}</p><canvas id="regionCanvas" width="1240" height="1753"></canvas>`;
+ root.querySelectorAll('[data-field]').forEach(el=>el.onchange=()=>{const q=draft.questions[Number(el.dataset.q)],f=el.dataset.field;if(f==='options'){q.options=el.value.split('\n').map(l=>l.trim()).filter(Boolean).map((label,i)=>({label,rect:q.options[i]?.rect||null,parts:q.options[i]?.parts||null}));}else q[f]=el.value;if(f==='type')renderEditor();else if(f==='options'){const box=el.closest('.schema-question').querySelector('.region-buttons');box.innerHTML=q.options.map((o,j)=>`<button type="button" data-region="${el.dataset.q},${j}">${escapeHtml(o.label)} 영역 ${o.rect?'✓':'미설정'}</button>`).join('');box.querySelectorAll('[data-region]').forEach(b=>b.onclick=()=>{selectedRegion=b.dataset.region.split(',').map(Number);renderEditor();});}});
+ root.querySelectorAll('[data-remove]').forEach(el=>el.onclick=()=>{draft.questions.splice(Number(el.dataset.remove),1);selectedRegion=null;renderEditor();});
+ root.querySelectorAll('[data-region]').forEach(el=>el.onclick=()=>{selectedRegion=el.dataset.region.split(',').map(Number);renderEditor();});
+ $('addQuestion').onclick=()=>{draft.questions.push({id:'q_'+crypto.randomUUID(),section:'추가',label:'새 문항',type:'single',options:[]});renderEditor();};
+ $('cancelSchema').onclick=()=>{root.hidden=true;draft=null;};
+ $('confirmSchema').onclick=async()=>{
+  if(!draft.questions.length)return alert('문항을 하나 이상 등록해주세요.');
+  for(const q of draft.questions){if(!q.label.trim())return alert('문항명을 입력해주세요.');if(q.type!=='text'&&(!q.options.length||new Set(q.options.map(o=>o.label)).size!==q.options.length||q.options.some(o=>!o.rect||o.rect.x2-o.rect.x1<5||o.rect.y2-o.rect.y1<5)))return alert('선택지 이름과 응답 영역을 모두 확인해주세요.');}
+  const next=structuredClone(draft);next.confirmed=true;next.questions.forEach(q=>delete q.typeNeedsReview);
+  try{await dbOperation('put',{name:templateName,schema:next,dataUrl:templateCanvas.toDataURL('image/png')});schema=next;records=[];root.hidden=true;displayTemplate();setTemplateStatus('사용 가능');updateReady();renderResults();renderReview();}catch(e){alert('양식 저장 실패: '+e.message);}
+ };
+ const c=$('regionCanvas'),ctx=c.getContext('2d');ctx.drawImage(templateCanvas,0,0);
+ if(selectedRegion){const o=draft.questions[selectedRegion[0]]?.options[selectedRegion[1]];if(o?.rect){const r=o.rect;ctx.strokeStyle='#7246ff';ctx.lineWidth=4;ctx.strokeRect(r.x1,r.y1,r.x2-r.x1,r.y2-r.y1);}}
+ let start=null;const point=e=>{const b=c.getBoundingClientRect();return [Math.max(0,Math.min(REF_W,(e.clientX-b.left)*REF_W/b.width)),Math.max(0,Math.min(REF_H,(e.clientY-b.top)*REF_H/b.height))];};
+ c.onpointerdown=e=>{if(!selectedRegion)return;start=point(e);c.setPointerCapture(e.pointerId);e.preventDefault();};
+ c.onpointermove=e=>{if(!start)return;const end=point(e);ctx.drawImage(templateCanvas,0,0);ctx.strokeStyle='#7246ff';ctx.lineWidth=4;ctx.strokeRect(start[0],start[1],end[0]-start[0],end[1]-start[1]);};
+ c.onpointerup=e=>{if(!start)return;const end=point(e);delete draft.questions[selectedRegion[0]].options[selectedRegion[1]].parts;draft.questions[selectedRegion[0]].options[selectedRegion[1]].rect={x1:Math.min(start[0],end[0]),y1:Math.min(start[1],end[1]),x2:Math.max(start[0],end[0]),y2:Math.max(start[1],end[1])};start=null;renderEditor();};
 }
-
-function setTemplateStatus(text){
-  const el = document.getElementById('templateStatus');
-  if(!el) return;
-  el.textContent = text;
-  el.classList.remove('loading','success','error');
-  if(text.includes('오류')) el.classList.add('error');
-  else if(text.includes('처리') || text.includes('복원') || text.includes('불러')) el.classList.add('loading');
-  else el.classList.add('success');
-}
-
-function openTemplateDB(){
-  return new Promise((resolve,reject)=>{
-    const req = indexedDB.open('SurveyCounterDB', 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if(!db.objectStoreNames.contains('settings')) db.createObjectStore('settings');
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function getStoredTemplate(){
-  const db = await openTemplateDB();
-  return new Promise((resolve,reject)=>{
-    const tx = db.transaction('settings','readonly');
-    const req = tx.objectStore('settings').get('activeTemplate');
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror = () => reject(req.error);
-    tx.oncomplete = () => db.close();
-  });
-}
-
-async function saveStoredTemplate(value){
-  const db = await openTemplateDB();
-  return new Promise((resolve,reject)=>{
-    const tx = db.transaction('settings','readwrite');
-    tx.objectStore('settings').put(value,'activeTemplate');
-    tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror = () => { const err=tx.error; db.close(); reject(err); };
-  });
-}
-
-async function deleteStoredTemplate(){
-  const db = await openTemplateDB();
-  return new Promise((resolve,reject)=>{
-    const tx = db.transaction('settings','readwrite');
-    tx.objectStore('settings').delete('activeTemplate');
-    tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror = () => { const err=tx.error; db.close(); reject(err); };
-  });
-}
-
-async function ensurePdfJs(){
-  if(pdfjsLib) return pdfjsLib;
-  try{
-    pdfjsLib = await import(PDFJS_CDN);
-    pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_CDN;
-    return pdfjsLib;
-  }catch(err){
-    throw new Error('PDF.js를 불러오지 못했습니다. JPG/PNG 스캔을 사용하거나 PDF.js를 로컬 파일로 연결해주세요.');
-  }
-}
-
+async function pdfToCanvases(file){const lib=await ensurePdfJs(),pdf=await lib.getDocument({data:new Uint8Array(await file.arrayBuffer()),wasmUrl:"./vendor/wasm/"}).promise,result=[];try{for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p),v=page.getViewport({scale:1}),view=page.getViewport({scale:REF_W/v.width}),c=document.createElement('canvas');c.width=Math.round(view.width);c.height=Math.round(view.height);await page.render({canvasContext:c.getContext('2d'),viewport:view}).promise;result.push(c);}return result;}finally{await pdf.destroy();}}
+async function imageFileToCanvas(file){const url=URL.createObjectURL(file);try{return await imageURLToCanvas(url);}finally{URL.revokeObjectURL(url);}}
 async function analyzeAll(){
-  if(!templatePixels) return alert('기준 설문 양식이 준비되지 않았습니다. 기준 양식을 먼저 확인해주세요.');
-  records = [];
-  showProgress(true);
-
-  let pages = [];
-  for(const file of selectedFiles){
-    if(file.type === 'application/pdf'){
-      const pdfPages = await pdfToCanvases(file);
-      pdfPages.forEach((p,i) => pages.push({file, page:i+1, canvas:p}));
-    }else{
-      pages.push({file, page:1, canvas:await imageFileToCanvas(file)});
-    }
+ if(busy||!schema?.confirmed)return;busy=true;updateReady();records=[];showProgress(true);let done=0;
+ try{
+  for(const file of selectedFiles){updateProgress(done,0,file.name+' 렌더링 중');const pages=file.type==='application/pdf'?await pdfToCanvases(file):[await imageFileToCanvas(file)];
+   for(let i=0;i<pages.length;i++){updateProgress(i,pages.length,`${file.name} · ${i+1}/${pages.length}페이지 분석 중`);await nextFrame();const original=SurveyEngine.normalize(pages[i]),aligned=SurveyEngine.align(original,templateCanvas,schema),r=SurveyEngine.read(aligned.canvas,templateCanvas,schema,Number($('threshold').value),aligned.meta);
+    records.push({...r,id:crypto.randomUUID(),fileName:file.name,page:i+1,programName:file.name.replace(/\.pdf$/i,'').replace(/^만족도조사\((.*)\)$/,'$1'),alignment:aligned.meta,reviewed:false,imageDataUrl:original.toDataURL('image/jpeg',.8),alignedDataUrl:aligned.canvas.toDataURL('image/jpeg',.8)});done++;pages[i]=null;
+   }
   }
-
-  for(let i=0;i<pages.length;i++){
-    updateProgress(i, pages.length, `설문 ${i+1}/${pages.length} 분석 중`);
-    await nextFrame();
-    const normalized = normalizeCanvas(pages[i].canvas);
-    const alignedResult = alignCanvas(normalized);
-    const aligned = alignedResult.canvas;
-    const result = analyzePage(aligned, alignedResult.meta);
-
-    result.fileName = pages[i].file.name;
-    result.page = pages[i].page;
-    result.imageDataUrl = aligned.toDataURL('image/jpeg', .75);
-    result.alignment = alignedResult.meta;
-    result.reviewed = false;
-    result.id = `${Date.now()}_${i}`;
-
-    // 신규 수동 입력 필드
-    result.programName = '';
-    result.comment = '';
-
-    records.push(result);
-  }
-
-  updateProgress(pages.length,pages.length,'분석 완료');
-  setTimeout(()=>showProgress(false),500);
-  renderResults();
-  renderReview();
-  switchView('review');
+  updateProgress(1,1,`분석 완료 · ${done}부`);renderResults();renderReview();switchView('review');
+ }catch(e){console.error(e);alert('분석 중 오류: '+e.message+'\n완료한 응답은 보존됩니다.');renderResults();renderReview();}
+ finally{busy=false;updateReady();showProgress(false);}
 }
-
-async function pdfToCanvases(file){
-  const lib = await ensurePdfJs();
-  const data = new Uint8Array(await file.arrayBuffer());
-  const pdf = await lib.getDocument({data}).promise;
-  const result = [];
-  for(let p=1;p<=pdf.numPages;p++){
-    const page = await pdf.getPage(p);
-    const base = page.getViewport({scale:1});
-    const viewport = page.getViewport({scale:REF_W / base.width});
-    const c = document.createElement('canvas');
-    c.width = Math.round(viewport.width);
-    c.height = Math.round(viewport.height);
-    await page.render({canvasContext:c.getContext('2d'), viewport}).promise;
-    result.push(c);
-  }
-  return result;
-}
-
-async function imageFileToCanvas(file){
-  const url = URL.createObjectURL(file);
-  try{
-    const img = await loadImage(url);
-    const c = document.createElement('canvas');
-    c.width = img.naturalWidth;
-    c.height = img.naturalHeight;
-    c.getContext('2d').drawImage(img,0,0);
-    return c;
-  }finally{
-    URL.revokeObjectURL(url);
-  }
-}
-
-function normalizeCanvas(src){
-  const c = document.createElement('canvas');
-  c.width = REF_W; c.height = REF_H;
-  const ctx = c.getContext('2d',{willReadFrequently:true});
-  ctx.fillStyle='white'; ctx.fillRect(0,0,REF_W,REF_H);
-  ctx.drawImage(src,0,0,REF_W,REF_H);
-  return c;
-}
-
-function alignCanvas(src){
-  // 스캔 오차를 단순 평행이동만으로 맞추지 않고
-  // 회전(-1.75~1.75°), 미세 배율, X/Y 이동을 함께 탐색한다.
-  const SMALL_W=310;
-  const SMALL_H=Math.round(REF_H*SMALL_W/REF_W);
-
-  const templateSmall=document.createElement('canvas');
-  templateSmall.width=SMALL_W; templateSmall.height=SMALL_H;
-  const tctx=templateSmall.getContext('2d',{willReadFrequently:true});
-  const templateCanvas=document.createElement('canvas');
-  templateCanvas.width=REF_W; templateCanvas.height=REF_H;
-  templateCanvas.getContext('2d').putImageData(
-    new ImageData(new Uint8ClampedArray(templatePixels),REF_W,REF_H),0,0
-  );
-  tctx.drawImage(templateCanvas,0,0,SMALL_W,SMALL_H);
-
-  const scanSmall=document.createElement('canvas');
-  scanSmall.width=SMALL_W; scanSmall.height=SMALL_H;
-  scanSmall.getContext('2d').drawImage(src,0,0,SMALL_W,SMALL_H);
-
-  const td=tctx.getImageData(0,0,SMALL_W,SMALL_H).data;
-  const sd=scanSmall.getContext('2d',{willReadFrequently:true})
-    .getImageData(0,0,SMALL_W,SMALL_H).data;
-
-  const points=[];
-  for(let y=35;y<SMALL_H-25;y+=5){
-    for(let x=18;x<SMALL_W-18;x+=5){
-      const i=(y*SMALL_W+x)*4;
-      const tg=(td[i]+td[i+1]+td[i+2])/3;
-      if(tg<175) points.push([x,y,tg]);
-    }
-  }
-
-  const cx=SMALL_W/2, cy=SMALL_H/2;
-  const sample=(x,y)=>{
-    const ix=Math.round(x),iy=Math.round(y);
-    if(ix<0||iy<0||ix>=SMALL_W||iy>=SMALL_H) return 255;
-    const i=(iy*SMALL_W+ix)*4;
-    return (sd[i]+sd[i+1]+sd[i+2])/3;
-  };
-  const score=(angle,scale,dx,dy)=>{
-    const rad=angle*Math.PI/180,cs=Math.cos(rad),sn=Math.sin(rad);
-    let total=0,n=0;
-    for(const [x,y,tg] of points){
-      const ux=x-cx,uy=y-cy;
-      const sx=cx+scale*(cs*ux-sn*uy)+dx;
-      const sy=cy+scale*(sn*ux+cs*uy)+dy;
-      total+=Math.abs(sample(sx,sy)-tg); n++;
-    }
-    return n?total/n:Infinity;
-  };
-
-  const baseScore=score(0,1,0,0);
-  let best={score:baseScore,angle:0,scale:1,dx:0,dy:0};
-
-  for(const angle of [-1.5,-1,-.5,0,.5,1,1.5]){
-    for(const scale of [.99,1,1.01]){
-      for(let dy=-4;dy<=4;dy+=2){
-        for(let dx=-4;dx<=4;dx+=2){
-          const v=score(angle,scale,dx,dy);
-          if(v<best.score) best={score:v,angle,scale,dx,dy};
-        }
-      }
-    }
-  }
-
-  const coarse={...best};
-  for(const angle of [coarse.angle-.25,coarse.angle,coarse.angle+.25]){
-    for(const scale of [coarse.scale-.005,coarse.scale,coarse.scale+.005]){
-      for(let dy=coarse.dy-1;dy<=coarse.dy+1;dy++){
-        for(let dx=coarse.dx-1;dx<=coarse.dx+1;dx++){
-          const v=score(angle,scale,dx,dy);
-          if(v<best.score) best={score:v,angle,scale,dx,dy};
-        }
-      }
-    }
-  }
-
-  // 작은 캔버스의 이동값을 원본 좌표로 환산한다.
-  const fullDx=best.dx*REF_W/SMALL_W;
-  const fullDy=best.dy*REF_H/SMALL_H;
-
-  // best는 "기준 양식 -> 스캔" 변환이므로 역변환해 스캔을 기준 양식에 맞춘다.
-  const out=document.createElement('canvas');
-  out.width=REF_W; out.height=REF_H;
-  const ctx=out.getContext('2d',{willReadFrequently:true});
-  ctx.fillStyle='white';ctx.fillRect(0,0,REF_W,REF_H);
-  ctx.save();
-  ctx.translate(REF_W/2,REF_H/2);
-  ctx.rotate(-best.angle*Math.PI/180);
-  ctx.scale(1/best.scale,1/best.scale);
-  ctx.translate(-REF_W/2-fullDx,-REF_H/2-fullDy);
-  ctx.drawImage(src,0,0);
-  ctx.restore();
-
-  const atBoundary=
-    Math.abs(best.angle)>=1.74 ||
-    best.scale<=.9851 || best.scale>=1.0149 ||
-    Math.abs(best.dx)>=4.99 || Math.abs(best.dy)>=4.99;
-
-  return {
-    canvas:out,
-    meta:{
-      score:best.score,
-      baseScore,
-      angle:best.angle,
-      scale:best.scale,
-      dx:fullDx,
-      dy:fullDy,
-      atBoundary,
-      lowQuality:best.score>32 || atBoundary
-    }
-  };
-}
-
-function analyzePage(canvas,alignmentMeta={}){
-  const ctx=canvas.getContext('2d',{willReadFrequently:true});
-  const scan=ctx.getImageData(0,0,REF_W,REF_H).data;
-  const threshold=Number(document.getElementById('threshold').value);
-
-  const genderScores = REGIONS.gender.map(r => addedInkScore(scan,r));
-  const genderPick = pickOne(genderScores,threshold);
-  const gender = genderPick.index>=0 ? REGIONS.gender[genderPick.index].label : '';
-
-  const q2=[], q2Meta=[];
-  REGIONS.q2.rows.forEach(row=>{
-    const scores=REGIONS.q2.cols.map(col=>addedInkScore(scan,{
-      x1:col[0]+8,y1:row[0]+5,x2:col[1]-8,y2:row[1]-5
-    }));
-    const pick=pickOne(scores,threshold);
-    q2.push(pick.index>=0?SCALE_LABELS[pick.index]:'');
-    q2Meta.push({scores,pick});
-  });
-
-  const q3=[], q3Meta=[];
-  REGIONS.q3.rows.forEach(row=>{
-    const scores=REGIONS.q3.cols.map(col=>addedInkScore(scan,{
-      x1:col[0]+8,y1:row[0]+5,x2:col[1]-8,y2:row[1]-5
-    }));
-    const pick=pickOne(scores,threshold);
-    q3.push(pick.index>=0?SCALE_LABELS[pick.index]:'');
-    q3Meta.push({scores,pick});
-  });
-
-  const q4Scores=REGIONS.q4.map(r=>addedInkScore(scan,{
-    x1:r.x1+5,y1:r.y1+5,x2:r.x2-5,y2:r.y2-5
-  }));
-
-  // 복수응답은 단순 절대 임계값만 적용하면 정렬 오차가 선택으로 잡힐 수 있다.
-  // 중앙값 대비 차이 + 페이지 내 최고점 대비 비율을 함께 사용해 오검출을 줄인다.
-  const sortedQ4=[...q4Scores].sort((a,b)=>a-b);
-  const q4Median=sortedQ4[Math.floor(sortedQ4.length/2)]||0;
-  const q4Peak=Math.max(...q4Scores,0);
-  const q4Cut=Math.max(threshold, q4Median + 0.20, q4Peak * 0.60);
-  const q4=REGIONS.q4.filter((r,i)=>q4Scores[i]>=q4Cut).map(r=>r.label);
-
-  const warnings=[];
-  if(alignmentMeta.lowQuality) warnings.push('정렬');
-  if(genderPick.warning) warnings.push('성별');
-  q2Meta.forEach((m,i)=>{if(m.pick.warning) warnings.push(`2-${i+1}`);});
-  q3Meta.forEach((m,i)=>{if(m.pick.warning) warnings.push(`3-${i+1}`);});
-
-  // 4번은 복수 선택을 허용하지만, 정렬 잔상이 임계값 바로 아래/위에 몰리면
-  // 실제 복수응답과 오검출을 구분하기 어렵다. 이런 경우 자동 확정하지 않는다.
-  const q4Rejected=q4Scores.filter((_,i)=>!q4.includes(REGIONS.q4[i].label));
-  const q4MaxRejected=q4Rejected.length?Math.max(...q4Rejected):0;
-  const q4MinSelected=q4.length
-    ? Math.min(...q4Scores.filter((_,i)=>q4.includes(REGIONS.q4[i].label)))
-    : 0;
-  const q4Ambiguous =
-    (q4.length===0 && q4Peak>=threshold*.65) ||
-    (q4.length>0 && q4MaxRejected>=q4Cut*.85) ||
-    (q4.length>0 && (q4MinSelected-q4Cut)<Math.max(.12,q4Peak*.08));
-  if(q4Ambiguous) warnings.push('4번');
-
-  return {
-    gender,q2,q3,q4,warnings,
-    genderScores,q2Meta,q3Meta,q4Scores,
-    q4Cut,q4Ambiguous,alignmentMeta
-  };
-}
-
-function addedInkScore(scan,r){
-  let newDark=0,eligible=0;
-  const x1=Math.max(0,Math.floor(r.x1)),y1=Math.max(0,Math.floor(r.y1));
-  const x2=Math.min(REF_W,Math.ceil(r.x2)),y2=Math.min(REF_H,Math.ceil(r.y2));
-  for(let y=y1;y<y2;y+=2){
-    for(let x=x1;x<x2;x+=2){
-      const i=(y*REF_W+x)*4;
-      const tg=(templatePixels[i]+templatePixels[i+1]+templatePixels[i+2])/3;
-      const sg=(scan[i]+scan[i+1]+scan[i+2])/3;
-      if(tg>205){
-        eligible++;
-        if(sg<145&&(tg-sg)>45)newDark++;
-      }
-    }
-  }
-  return eligible?(newDark/eligible)*100:0;
-}
-
-function pickOne(scores,threshold){
-  const order=scores.map((v,i)=>({v,i})).sort((a,b)=>b.v-a.v);
-  const top=order[0],second=order[1]||{v:0};
-  if(!top||top.v<threshold)return {index:-1,warning:true};
-  const close=second.v>=threshold&&(top.v-second.v)<Math.max(.18,top.v*.22);
-  return {index:top.i,warning:close};
-}
-
-function recordIsConfirmed(r){
-  return !!r && (r.warnings.length===0 || r.reviewed===true);
-}
-
-function confirmedRecords(){
-  return records.filter(recordIsConfirmed);
-}
-
+function recordIsConfirmed(r){return r.reviewed===true||r.warnings.length===0;}
+function confirmedRecords(){return records.filter(recordIsConfirmed);}
 function renderResults(){
-  const total=records.length;
-  const warningCount=records.filter(r=>!recordIsConfirmed(r)).length;
-  const confirmed=confirmedRecords();
-  const namedCount=records.filter(r=>r.programName.trim()).length;
-  const commentCount=records.filter(r=>r.comment.trim()).length;
-
-  document.getElementById('stats').innerHTML=[
-    stat('총 설문지',total+'부'),
-    stat('유효 집계',confirmed.length+'부'),
-    stat('검토 대기',warningCount+'부'),
-    stat('기타 의견',commentCount+'건')
-  ].join('');
-
-  const g=countValues(confirmed.map(r=>r.gender),['남','여','']);
-  document.getElementById('genderResult').innerHTML=bars([
-    ['남',g['남']||0],['여',g['여']||0],['미응답/미판독',g['']||0]
-  ],Math.max(1,confirmed.length));
-
-  renderQ2Integrated();
-  renderQ3ByProgram();
-  renderQ4();
-  renderCommentsByProgram();
+ const source=confirmedRecords();$('stats').innerHTML=[stat('총 설문지',records.length+'부'),stat('유효 집계',source.length+'부'),stat('검토 대기',(records.length-source.length)+'부')].join('');
+ if(!schema){$('questionResults').innerHTML='';return;}
+ const groups={};for(const r of source){const key=r.programName||'프로그램명 미입력';(groups[key]??=[]).push(r);}
+ $('questionResults').innerHTML=schema.questions.map(q=>`<section class="result-card"><div class="result-card-head"><div><h3>${escapeHtml(q.label)}</h3></div><p>${q.type==='multiple'?'복수응답 · 비율 분모는 해당 프로그램 유효 설문 수':'문항별 개별 집계'}</p></div>${Object.entries(groups).map(([program,items])=>{
+  if(q.type==='text'){const comments=items.map(r=>r.answers[q.id]).filter(Boolean);return `<div class="program-block"><h4>${escapeHtml(program)}</h4>${comments.length?comments.map(c=>`<div class="comment-item">${escapeHtml(c)}</div>`).join(''):'입력된 의견이 없습니다.'}</div>`;}
+  const counts=q.options.map(o=>[o.label,items.filter(r=>Array.isArray(r.answers[q.id])?r.answers[q.id].includes(o.label):r.answers[q.id]===o.label).length]);
+  const missing=items.filter(r=>!r.answers[q.id]||Array.isArray(r.answers[q.id])&&!r.answers[q.id].length).length;
+  const countCells=counts.map(([l,n])=>`<td>${n} (${(n/items.length*100).toFixed(1)}%)</td>`).join('');
+  return `<div class="program-block"><h4>${escapeHtml(program)} · ${items.length}부</h4><div class="table-wrap"><table><thead><tr>${counts.map(([l])=>`<th>${escapeHtml(l)}</th>`).join('')}<th>미응답</th></tr></thead><tbody><tr>${countCells}<td>${missing}</td></tr></tbody></table></div>${bars(counts,items.length)}</div>`;
+ }).join('')||'<div class="empty-box">검토 완료된 응답이 없습니다.</div>'}</section>`).join('');
 }
-
-function renderQ2Integrated(){
-  // 2-1~2-4를 모두 한 배열로 펼쳐 통합 집계
-  const source=confirmedRecords();
-  const all=source.flatMap(r=>r.q2);
-  const counts=countValues(all,[...SCALE_LABELS,'']);
-  const answered=SCALE_LABELS.reduce((sum,k)=>sum+(counts[k]||0),0);
-  const totalPossible=source.length*4;
-
-  document.getElementById('q2IntegratedResult').innerHTML = `
-    <div class="stats" style="margin-bottom:14px">
-      ${stat('유효 응답 수',answered+'건')}
-      ${stat('전체 가능 응답',totalPossible+'건')}
-      ${stat('제외/미확정',(records.length-source.length)+'부')}
-      ${stat('긍정 응답률',answered?(((counts['매우 만족']||0)+(counts['만족']||0))/answered*100).toFixed(1)+'%':'-')}
-    </div>
-    ${bars(SCALE_LABELS.map(k=>[k,counts[k]||0]),Math.max(1,answered))}
-  `;
-}
-
-function renderQ3ByProgram(){
-  const root=document.getElementById('q3ByProgramResult');
-  const groups=groupRecordsByProgram(true);
-
-  if(!Object.keys(groups).length){
-    root.innerHTML='<div class="empty-box">응답 검토 화면에서 프로그램명을 입력하면 여기에 프로그램별 통계가 표시됩니다.</div>';
-    return;
-  }
-
-  root.innerHTML=Object.entries(groups).map(([program,items])=>{
-    return `
-      <div class="program-block">
-        <div class="program-title">
-          <h3>${escapeHtml(program)}</h3>
-          <span class="pill">${items.length}부</span>
-        </div>
-        ${likertTable(
-          QUESTION_LABELS.q3,
-          QUESTION_LABELS.q3.map((_,i)=>items.map(r=>r.q3[i]))
-        )}
-      </div>
-    `;
-  }).join('');
-}
-
-function renderQ4(){
-  const counts=Object.fromEntries(QUESTION_LABELS.q4.map(x=>[x,0]));
-  const source=confirmedRecords();
-  source.forEach(r=>r.q4.forEach(v=>{if(v in counts)counts[v]++;}));
-  document.getElementById('q4Result').innerHTML=bars(
-    QUESTION_LABELS.q4.map(v=>[v,counts[v]]),
-    Math.max(1,source.length)
-  );
-}
-
-function renderCommentsByProgram(){
-  const root=document.getElementById('commentsByProgramResult');
-  const groups={};
-
-  records.forEach(r=>{
-    const comment=r.comment.trim();
-    if(!comment)return;
-    const program=r.programName.trim()||'프로그램명 미입력';
-    if(!groups[program])groups[program]=[];
-    groups[program].push(comment);
-  });
-
-  if(!Object.keys(groups).length){
-    root.innerHTML='<div class="empty-box">응답 검토 화면에서 기타 의견을 입력하면 여기에 프로그램별로 모아 표시됩니다.</div>';
-    return;
-  }
-
-  root.innerHTML=Object.entries(groups).map(([program,comments])=>`
-    <div class="program-block">
-      <div class="program-title">
-        <h3>${escapeHtml(program)}</h3>
-        <span class="pill">${comments.length}건</span>
-      </div>
-      <div class="comment-list">
-        ${comments.map((c,i)=>`<div class="comment-item"><strong>${i+1}.</strong> ${escapeHtml(c)}</div>`).join('')}
-      </div>
-    </div>
-  `).join('');
-}
-
-function groupRecordsByProgram(confirmedOnly=false){
-  const groups={};
-  const source=confirmedOnly?confirmedRecords():records;
-  source.forEach(r=>{
-    const name=r.programName.trim();
-    if(!name)return;
-    if(!groups[name])groups[name]=[];
-    groups[name].push(r);
-  });
-  return groups;
-}
-
 function renderReview(){
-  const filter=document.getElementById('reviewFilter').value;
-  const items=records.filter(r=>filter==='all'||!recordIsConfirmed(r));
-  const root=document.getElementById('reviewList');
-
-  if(!items.length){
-    root.innerHTML='<div class="empty-box">표시할 설문이 없습니다.</div>';
-    return;
-  }
-
-  root.innerHTML=items.map(r=>`
-    <article class="review-card ${r.warnings.length?'warning':''}" data-id="${r.id}">
-      <div class="review-head">
-        <div>
-          <strong>${escapeHtml(r.fileName)} ${r.page>1?`- ${r.page}p`:''}</strong>
-          <div class="help">${r.reviewed?'사용자가 검토 완료':(r.warnings.length?'검토 대상: '+r.warnings.join(', '):'자동 판독 완료')}</div>
-          ${r.alignment?`<div class="help">정렬: 회전 ${r.alignment.angle.toFixed(2)}° · 이동 X ${r.alignment.dx.toFixed(1)}px / Y ${r.alignment.dy.toFixed(1)}px</div>`:''}
-        </div>
-        <div>
-          <span class="${recordIsConfirmed(r)?'ok-badge':'warning-badge'}">${r.reviewed?'검토 완료':(r.warnings.length?'검토 필요':'정상')}</span>
-          <button class="original-btn" onclick="showOriginal('${r.id}')">원본 보기</button>
-          ${r.warnings.length&&!r.reviewed?`<button class="original-btn" onclick="markReviewed('${r.id}')">검토 완료</button>`:''}
-        </div>
-      </div>
-
-      <div class="review-meta">
-        <label>
-          프로그램명
-          <input type="text"
-            placeholder="예: 전통 비즈 뒤꽂이 만들기"
-            value="${escapeAttr(r.programName)}"
-            oninput="updateTextField('${r.id}','programName',this.value)">
-        </label>
-
-        <label>
-          기타 의견 / 건의사항
-          <textarea
-            placeholder="설문지 5번 자유의견을 보고 직접 입력하세요."
-            oninput="updateTextField('${r.id}','comment',this.value)">${escapeHtml(r.comment)}</textarea>
-        </label>
-      </div>
-
-      <div class="review-grid">
-        ${selectField(r.id,'gender','성별',r.gender,['','남','여'])}
-        ${r.q2.map((v,i)=>selectField(r.id,`q2.${i}`,`2-${i+1}. ${shortLabel(QUESTION_LABELS.q2[i])}`,v,['',...SCALE_LABELS])).join('')}
-        ${r.q3.map((v,i)=>selectField(r.id,`q3.${i}`,`3-${i+1}. ${shortLabel(QUESTION_LABELS.q3[i])}`,v,['',...SCALE_LABELS])).join('')}
-        <label>
-          4. 희망 프로그램
-          <div class="q4-checks">
-            ${QUESTION_LABELS.q4.map(v=>`
-              <label><input type="checkbox" ${r.q4.includes(v)?'checked':''}
-                onchange="updateQ4('${r.id}','${v}',this.checked)"> ${v}</label>
-            `).join('')}
-          </div>
-        </label>
-      </div>
-    </article>
-  `).join('');
+ const root=$('reviewList'),items=records.filter(r=>$('reviewFilter').value==='all'||!recordIsConfirmed(r));
+ root.innerHTML=items.length?items.map(r=>`<article class="review-card ${recordIsConfirmed(r)?'':'warning'}"><div class="review-head"><div><strong>${escapeHtml(r.fileName)} · ${r.page}p</strong><div class="help">${r.reviewed?'검토 완료':r.warnings.length?'검토 대상: '+escapeHtml(r.warnings.join(', ')):'자동 판독 완료'} · 회전 ${r.alignment.angle.toFixed(2)}° · 정렬 오차 ${r.alignment.score.toFixed(2)}</div></div><div><button class="original-btn" data-original="${r.id}">원본 보기</button><button class="original-btn" data-aligned="${r.id}">정렬본 보기</button><button class="original-btn" data-confirm="${r.id}">${r.reviewed?'검토 완료':'검토 완료로 확정'}</button></div></div><label>프로그램명<input data-id="${r.id}" data-program value="${escapeAttr(r.programName)}"></label><div class="review-grid">${schema.questions.map(q=>{
+  const val=r.answers[q.id];const attr=`data-id="${r.id}" data-question="${q.id}"`;
+  if(q.type==='text')return `<label>${escapeHtml(q.label)}<textarea ${attr} placeholder="원본 필기를 보고 직접 입력해주세요.">${escapeHtml(val||'')}</textarea></label>`;
+  if(q.type==='multiple')return `<div><span>${escapeHtml(q.label)}</span><div class="q4-checks">${q.options.map(o=>`<label><input type="checkbox" ${attr} value="${escapeAttr(o.label)}" ${val?.includes(o.label)?'checked':''}>${escapeHtml(o.label)}</label>`).join('')}</div></div>`;
+  return `<label>${escapeHtml(q.label)}<select ${attr}><option value="">미응답 / 미판독</option>${q.options.map(o=>`<option value="${escapeAttr(o.label)}" ${val===o.label?'selected':''}>${escapeHtml(o.label)}</option>`).join('')}</select></label>`;
+ }).join('')}</div></article>`).join(''):'<div class="empty-box">표시할 응답이 없습니다.</div>';
+ root.querySelectorAll('[data-original],[data-aligned]').forEach(el=>el.onclick=()=>{const r=records.find(r=>r.id===(el.dataset.original||el.dataset.aligned));$('modalTitle').textContent=r.fileName+' · '+r.page+'p';$('modalImage').src=el.dataset.aligned?r.alignedDataUrl:r.imageDataUrl;$('imageModal').classList.remove('hidden');});
+ root.querySelectorAll('[data-confirm]').forEach(el=>el.onclick=()=>{records.find(r=>r.id===el.dataset.confirm).reviewed=true;renderResults();renderReview();});
+ root.querySelectorAll('[data-question],[data-program]').forEach(el=>el.onchange=()=>{const r=records.find(r=>r.id===el.dataset.id);if(el.hasAttribute('data-program'))r.programName=el.value;else{
+  const q=schema.questions.find(q=>q.id===el.dataset.question);if(q.type==='multiple'){const set=new Set(r.answers[q.id]);el.checked?set.add(el.value):set.delete(el.value);r.answers[q.id]=[...set];}else r.answers[q.id]=el.value;
+  if(q.type!=='text'){r.reviewed=false;if(!r.warnings.includes('수동 수정'))r.warnings.push('수동 수정');}
+ }renderResults();if(!el.hasAttribute('data-program')&&el.tagName!=='TEXTAREA')renderReview();});
 }
-
-function updateTextField(id,key,value){
-  const r=records.find(x=>x.id===id);if(!r)return;
-  r[key]=value;
-  renderResults();
-}
-window.updateTextField=updateTextField;
-
-function selectField(id,path,label,value,options){
-  return `<label>${escapeHtml(label)}
-    <select onchange="updateAnswer('${id}','${path}',this.value)">
-      ${options.map(o=>`<option value="${escapeAttr(o)}" ${o===value?'selected':''}>${escapeHtml(o||'미응답/미판독')}</option>`).join('')}
-    </select>
-  </label>`;
-}
-
-function updateAnswer(id,path,value){
-  const r=records.find(x=>x.id===id);if(!r)return;
-  if(path==='gender')r.gender=value;
-  else{
-    const [key,idx]=path.split('.');
-    r[key][Number(idx)]=value;
-  }
-  r.reviewed=false;
-  renderResults();
-}
-window.updateAnswer=updateAnswer;
-
-function updateQ4(id,value,checked){
-  const r=records.find(x=>x.id===id);if(!r)return;
-  if(checked&&!r.q4.includes(value))r.q4.push(value);
-  if(!checked)r.q4=r.q4.filter(v=>v!==value);
-  r.reviewed=false;
-  renderResults();
-}
-window.updateQ4=updateQ4;
-
-function markReviewed(id){
-  const r=records.find(x=>x.id===id);if(!r)return;
-  r.reviewed=true;
-  renderResults();
-  renderReview();
-}
-window.markReviewed=markReviewed;
-
-function showOriginal(id){
-  const r=records.find(x=>x.id===id);if(!r)return;
-  document.getElementById('modalTitle').textContent=`${r.fileName} ${r.page>1?'- '+r.page+'p':''}`;
-  document.getElementById('modalImage').src=r.imageDataUrl;
-  document.getElementById('imageModal').classList.remove('hidden');
-}
-window.showOriginal=showOriginal;
-
-function closeModal(){
-  document.getElementById('imageModal').classList.add('hidden');
-  document.getElementById('modalImage').src='';
-}
-
-function likertTable(labels,answers){
-  const head='<tr><th>문항</th>'+SCALE_LABELS.map(x=>`<th>${x}</th>`).join('')+'<th>미응답/미판독</th><th>응답계</th></tr>';
-  const rows=labels.map((label,i)=>{
-    const counts=countValues(answers[i],[...SCALE_LABELS,'']);
-    const answered=SCALE_LABELS.reduce((a,k)=>a+(counts[k]||0),0);
-    return `<tr>
-      <td>${escapeHtml(label)}</td>
-      ${SCALE_LABELS.map(k=>`<td>${counts[k]||0}</td>`).join('')}
-      <td>${counts['']||0}</td>
-      <td class="total">${answered}</td>
-    </tr>`;
-  }).join('');
-  return `<div class="table-wrap"><table><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
-}
-
+function closeModal(){$('imageModal').classList.add('hidden');$('modalImage').src='';}
+function resetAll(){if(busy)return;records=[];selectedFiles=[];$('fileInput').value='';setFiles([]);renderResults();renderReview();switchView('upload');}
+function downloadCSV(){if(!records.length)return;const headers=['파일명','페이지','프로그램명',...schema.questions.map(q=>q.label),'집계상태','검토사유','정렬각도','정렬오차'];const rows=records.map(r=>[r.fileName,r.page,r.programName,...schema.questions.map(q=>Array.isArray(r.answers[q.id])?r.answers[q.id].join('|'):r.answers[q.id]),recordIsConfirmed(r)?'유효':'검토 대기',r.warnings.join('|'),r.alignment.angle,r.alignment.score]);const csv='\uFEFF'+[headers,...rows].map(row=>row.map(v=>csvCell(/^[=+@-]/.test(String(v))?"'"+v:v)).join(',')).join('\r\n');const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download='만족도조사_문항별집계.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function bars(items,total){
   const max=Math.max(1,...items.map(x=>x[1]));
   return items.map(([label,count])=>{
@@ -836,30 +127,6 @@ function countValues(values,keys){
   return out;
 }
 
-function downloadCSV(){
-  if(!records.length)return;
-  const headers=[
-    '파일명','페이지','프로그램명','성별',
-    ...QUESTION_LABELS.q2.map((_,i)=>`2-${i+1}`),
-    ...QUESTION_LABELS.q3.map((_,i)=>`3-${i+1}`),
-    '희망프로그램','기타의견','검토필요','집계상태','정렬각도','정렬X','정렬Y'
-  ];
-  const rows=records.map(r=>[
-    r.fileName,r.page,r.programName,r.gender,
-    ...r.q2,...r.q3,
-    r.q4.join('|'),r.comment,r.warnings.join('|'),
-    recordIsConfirmed(r)?'유효':'검토대기',
-    r.alignment?.angle??'',r.alignment?.dx??'',r.alignment?.dy??''
-  ]);
-  const csv='\uFEFF'+[headers,...rows].map(row=>row.map(csvCell).join(',')).join('\r\n');
-  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download='만족도조사_응답집계.csv';
-  a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
-}
-
 function switchView(name){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.querySelectorAll('.nav').forEach(v=>v.classList.remove('active'));
@@ -871,20 +138,6 @@ function switchView(name){
     review:'자동 판독 결과를<br>확인하고 보정하세요'
   }[name];
   if(name==='result')renderResults();
-}
-function resetAll(){
-  selectedFiles=[];records=[];
-  document.getElementById('fileInput').value='';
-  setFiles([]);
-  document.getElementById('stats').innerHTML='';
-  document.getElementById('reviewList').innerHTML=
-    '<div class="empty-state"><strong>아직 분석된 설문이 없습니다.</strong><p>설문 분석을 완료하면 자동 판독 결과가 여기에 표시됩니다.</p></div>';
-  document.getElementById('genderResult').innerHTML='';
-  document.getElementById('q2IntegratedResult').innerHTML='';
-  document.getElementById('q3ByProgramResult').innerHTML='';
-  document.getElementById('q4Result').innerHTML='';
-  document.getElementById('commentsByProgramResult').innerHTML='';
-  switchView('upload');
 }
 function stat(label,value){return `<div class="stat"><div class="label">${label}</div><div class="value">${value}</div></div>`;}
 function showProgress(on){document.getElementById('progressWrap').classList.toggle('hidden',!on);}
