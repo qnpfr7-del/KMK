@@ -21,6 +21,8 @@ function bindUI(){
  }catch(err){alert(err.message);setTemplateStatus(schema?.confirmed?'사용 가능':'원본 PDF 등록 필요');}finally{busy=false;updateReady();e.target.value='';}};
  $('resetTemplateBtn').onclick=async()=>{if(busy)return;await dbOperation('delete');records=[];await loadDefaultTemplate();renderResults();renderReview();};
  $('editSchemaBtn').onclick=()=>{if(!templateCanvas)return alert('원본 양식을 먼저 등록해주세요.');openEditor();};
+ $('closeSchemaDialog').onclick=closeEditor;
+ $('schemaDialog').addEventListener('close',()=>{draft=null;selectedRegion=null;document.body.classList.remove('schema-editing');});
  $('closeModal').onclick=closeModal;$('imageModal').onclick=e=>{if(e.target.id==='imageModal')closeModal();};
  document.querySelectorAll('[data-compare-mode]').forEach(b=>b.onclick=()=>{if(!comparisonState)return;comparisonState.mode=b.dataset.compareMode;drawComparison();});
  $('compareOpacity').oninput=drawComparison;$('compareQuestion').onchange=drawComparison;
@@ -46,29 +48,45 @@ async function loadDefaultTemplate(){
 async function imageURLToCanvas(url){const img=await loadImage(url),c=document.createElement('canvas');c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext('2d').drawImage(img,0,0);return SurveyEngine.normalize(c);}
 function displayTemplate(){ $('templateName').value=templateName;$('templatePreview').src=templateCanvas.toDataURL('image/jpeg',.85);$('templatePreviewWrap').hidden=false;$('schemaSummary').textContent=`${schema.questions.length}개 문항 · ${schema.confirmed?'확인 완료':'확인 필요'}`;}
 function setTemplateStatus(text){$('templateStatus').textContent=text;$('templateStatus').className='status-badge '+(text.includes('사용')?'success':text.includes('처리')?'loading':'error');}
-function openEditor(){draft=structuredClone(schema);selectedRegion=null;renderEditor();}
+let editorZoom=1;
+function openEditor(){
+ draft=structuredClone(schema);selectedRegion=null;editorZoom=1;
+ if(!$('schemaDialog').open){$('schemaDialog').showModal();document.body.classList.add('schema-editing');}
+ renderEditor();
+}
+function closeEditor(){$('schemaDialog').close();}
+function sizeRegionCanvas(){
+ const viewport=$('regionViewport'),c=$('regionCanvas');if(!viewport||!c)return;
+ const fit=Math.min((viewport.clientWidth-24)/REF_W,(viewport.clientHeight-24)/REF_H);
+ c.style.width=Math.max(1,REF_W*fit*editorZoom)+'px';c.style.height=Math.max(1,REF_H*fit*editorZoom)+'px';
+}
+window.addEventListener('resize',()=>{if($('schemaDialog')?.open)sizeRegionCanvas();});
 function renderEditor(){
- const root=$('schemaEditor');root.hidden=false;
- root.innerHTML=`<p class="card-note">문항명·응답 방식·선택지를 확인하세요. 영역 버튼을 선택하고 아래 원본에서 드래그하면 위치를 수정할 수 있습니다. 양식 저장 시 이전 집계는 초기화됩니다. 프로그램마다 문항 내용이 다르면 해당 원본으로 별도 분석하세요.</p>
- <div class="schema-questions">${draft.questions.map((q,i)=>`<div class="schema-question"><div class="schema-row"><input aria-label="문항명" data-q="${i}" data-field="label" value="${escapeAttr(q.label)}"><select aria-label="응답 방식" data-q="${i}" data-field="type">${[['single','단일 선택'],['multiple','복수 선택'],['text','자유 의견']].map(([v,l])=>`<option value="${v}" ${v===q.type?'selected':''}>${l}</option>`).join('')}</select><button data-remove="${i}" type="button">삭제</button></div>${q.typeNeedsReview?'<p class="type-note">복수응답 여부가 원본에 명시되지 않았습니다. 응답 방식을 확인해주세요.</p>':''}${q.type!=='text'?`<label>선택지 (한 줄에 하나)<textarea data-q="${i}" data-field="options">${escapeHtml(q.options.map(o=>o.label).join('\n'))}</textarea></label><div class="region-buttons">${q.options.map((o,j)=>`<button type="button" data-region="${i},${j}" class="${selectedRegion?.[0]===i&&selectedRegion?.[1]===j?'selected':''}">${escapeHtml(o.label)} 영역 ${o.rect?'✓':'미설정'}</button>`).join('')}</div>`:'<p class="card-note">필기 의견은 원본을 보고 직접 입력합니다.</p>'}</div>`).join('')}</div>
- <div class="button-row"><button id="addQuestion" class="secondary-btn">문항 추가</button><button id="confirmSchema" class="primary-btn">이 문항 구조로 저장</button><button id="cancelSchema" class="secondary-btn">취소</button></div><p id="regionHelp" class="card-note">${selectedRegion?'선택한 응답 영역을 원본에서 드래그하세요.':'영역 버튼을 누르면 선택지 위치를 표시합니다.'}</p><canvas id="regionCanvas" width="1240" height="1753"></canvas>`;
- root.querySelectorAll('[data-field]').forEach(el=>el.onchange=()=>{const q=draft.questions[Number(el.dataset.q)],f=el.dataset.field;if(f==='options'){q.options=el.value.split('\n').map(l=>l.trim()).filter(Boolean).map((label,i)=>({label,rect:q.options[i]?.rect||null,parts:q.options[i]?.parts||null}));}else q[f]=el.value;if(f==='type')renderEditor();else if(f==='options'){const box=el.closest('.schema-question').querySelector('.region-buttons');box.innerHTML=q.options.map((o,j)=>`<button type="button" data-region="${el.dataset.q},${j}">${escapeHtml(o.label)} 영역 ${o.rect?'✓':'미설정'}</button>`).join('');box.querySelectorAll('[data-region]').forEach(b=>b.onclick=()=>{selectedRegion=b.dataset.region.split(',').map(Number);renderEditor();});}});
+ const root=$('schemaEditor'),leftScroll=$('schemaQuestionPane')?.scrollTop||0,rightScroll=[$('regionViewport')?.scrollLeft||0,$('regionViewport')?.scrollTop||0];
+ root.innerHTML=`<div class="schema-workspace"><section id="schemaQuestionPane" class="schema-question-pane" aria-label="문항과 선택지"><p class="card-note">문항명·응답 방식·선택지를 확인하세요. 양식 저장 시 이전 집계는 초기화됩니다.</p>
+ <div class="schema-questions">${draft.questions.map((q,i)=>`<div class="schema-question"><span class="schema-question-number">문항 ${i+1}</span><div class="schema-row"><input aria-label="문항명" data-q="${i}" data-field="label" value="${escapeAttr(q.label)}"><select aria-label="응답 방식" data-q="${i}" data-field="type">${[['single','단일 선택'],['multiple','복수 선택'],['text','자유 의견']].map(([v,l])=>`<option value="${v}" ${v===q.type?'selected':''}>${l}</option>`).join('')}</select><button data-remove="${i}" type="button">삭제</button></div>${q.typeNeedsReview?'<p class="type-note">복수응답 여부가 원본에 명시되지 않았습니다. 응답 방식을 확인해주세요.</p>':''}${q.type!=='text'?`<label>선택지 (한 줄에 하나)<textarea data-q="${i}" data-field="options">${escapeHtml(q.options.map(o=>o.label).join('\n'))}</textarea></label><div class="region-buttons">${q.options.map((o,j)=>`<button type="button" data-region="${i},${j}" class="${selectedRegion?.[0]===i&&selectedRegion?.[1]===j?'selected':''}">${escapeHtml(o.label)} 영역 ${o.rect?'✓':'미설정'}</button>`).join('')}</div>`:'<p class="card-note">필기 의견은 원본을 보고 직접 입력합니다.</p>'}</div>`).join('')}</div>
+ </section><section class="schema-region-pane" aria-label="원본과 응답 영역"><div class="schema-region-toolbar"><div><strong>원본 · 응답 영역 표시</strong><p id="regionHelp" class="card-note" aria-live="polite">${selectedRegion?escapeHtml(draft.questions[selectedRegion[0]]?.label||'')+' / '+escapeHtml(draft.questions[selectedRegion[0]]?.options[selectedRegion[1]]?.label||'')+' — 답변 칸을 드래그하세요.':'왼쪽에서 선택지의 영역 버튼을 먼저 선택하세요.'}</p></div><label>확대 <select id="regionZoom" aria-label="원본 확대">${[[1,'전체 맞춤'],[1.5,'150%'],[2,'200%'],[3,'300%']].map(([v,l])=>`<option value="${v}" ${editorZoom===v?'selected':''}>${l}</option>`).join('')}</select></label></div><div id="regionViewport" class="region-viewport"><canvas id="regionCanvas" width="1240" height="1753" aria-label="응답 영역 지정용 원본 설문지"></canvas></div></section></div><footer class="schema-dialog-footer"><span class="card-note">영역 버튼 → 원본에서 드래그 → 저장</span><div class="button-row"><button id="addQuestion" class="secondary-btn">문항 추가</button><button id="confirmSchema" class="primary-btn">이 문항 구조로 저장</button><button id="cancelSchema" class="secondary-btn">취소</button></div></footer>`;
+ sizeRegionCanvas();$('schemaQuestionPane').scrollTop=leftScroll;$('regionViewport').scrollLeft=rightScroll[0];$('regionViewport').scrollTop=rightScroll[1];
+ $('regionZoom').onchange=e=>{editorZoom=Number(e.target.value);sizeRegionCanvas();};
+ root.querySelectorAll('[data-field]').forEach(el=>el.onchange=()=>{const q=draft.questions[Number(el.dataset.q)],f=el.dataset.field;if(f==='options'){q.options=el.value.split('\n').map(l=>l.trim()).filter(Boolean).map((label,i)=>({label,rect:q.options[i]?.rect||null,parts:q.options[i]?.parts||null}));}else q[f]=el.value;if(f==='type'){selectedRegion=null;renderEditor();}else if(f==='options'){selectedRegion=null;renderEditor();}});
  root.querySelectorAll('[data-remove]').forEach(el=>el.onclick=()=>{draft.questions.splice(Number(el.dataset.remove),1);selectedRegion=null;renderEditor();});
  root.querySelectorAll('[data-region]').forEach(el=>el.onclick=()=>{selectedRegion=el.dataset.region.split(',').map(Number);renderEditor();});
- $('addQuestion').onclick=()=>{draft.questions.push({id:'q_'+crypto.randomUUID(),section:'추가',label:'새 문항',type:'single',options:[]});renderEditor();};
- $('cancelSchema').onclick=()=>{root.hidden=true;draft=null;};
+ $('addQuestion').onclick=()=>{draft.questions.push({id:'q_'+crypto.randomUUID(),section:'추가',label:'새 문항',type:'single',options:[]});selectedRegion=null;renderEditor();$('schemaQuestionPane').scrollTop=$('schemaQuestionPane').scrollHeight;};
+ $('cancelSchema').onclick=closeEditor;
  $('confirmSchema').onclick=async()=>{
   if(!draft.questions.length)return alert('문항을 하나 이상 등록해주세요.');
   for(const q of draft.questions){if(!q.label.trim())return alert('문항명을 입력해주세요.');if(q.type!=='text'&&(!q.options.length||new Set(q.options.map(o=>o.label)).size!==q.options.length||q.options.some(o=>!o.rect||o.rect.x2-o.rect.x1<5||o.rect.y2-o.rect.y1<5)))return alert('선택지 이름과 응답 영역을 모두 확인해주세요.');}
   const next=structuredClone(draft);next.confirmed=true;next.questions.forEach(q=>delete q.typeNeedsReview);
-  try{await dbOperation('put',{name:templateName,schema:next,dataUrl:templateCanvas.toDataURL('image/png')});schema=next;records=[];root.hidden=true;displayTemplate();setTemplateStatus('사용 가능');updateReady();renderResults();renderReview();}catch(e){alert('양식 저장 실패: '+e.message);}
+  try{await dbOperation('put',{name:templateName,schema:next,dataUrl:templateCanvas.toDataURL('image/png')});schema=next;records=[];closeEditor();displayTemplate();setTemplateStatus('사용 가능');updateReady();renderResults();renderReview();}catch(e){alert('양식 저장 실패: '+e.message);}
  };
+ if(selectedRegion)root.querySelector(`[data-region="${selectedRegion.join(',')}"]`)?.focus({preventScroll:true});
  const c=$('regionCanvas'),ctx=c.getContext('2d');ctx.drawImage(templateCanvas,0,0);
  if(selectedRegion){const o=draft.questions[selectedRegion[0]]?.options[selectedRegion[1]];if(o?.rect){const r=o.rect;ctx.strokeStyle='#7246ff';ctx.lineWidth=4;ctx.strokeRect(r.x1,r.y1,r.x2-r.x1,r.y2-r.y1);}}
  let start=null;const point=e=>{const b=c.getBoundingClientRect();return [Math.max(0,Math.min(REF_W,(e.clientX-b.left)*REF_W/b.width)),Math.max(0,Math.min(REF_H,(e.clientY-b.top)*REF_H/b.height))];};
  c.onpointerdown=e=>{if(!selectedRegion)return;start=point(e);c.setPointerCapture(e.pointerId);e.preventDefault();};
  c.onpointermove=e=>{if(!start)return;const end=point(e);ctx.drawImage(templateCanvas,0,0);ctx.strokeStyle='#7246ff';ctx.lineWidth=4;ctx.strokeRect(start[0],start[1],end[0]-start[0],end[1]-start[1]);};
- c.onpointerup=e=>{if(!start)return;const end=point(e);delete draft.questions[selectedRegion[0]].options[selectedRegion[1]].parts;draft.questions[selectedRegion[0]].options[selectedRegion[1]].rect={x1:Math.min(start[0],end[0]),y1:Math.min(start[1],end[1]),x2:Math.max(start[0],end[0]),y2:Math.max(start[1],end[1])};start=null;renderEditor();};
+ c.onpointercancel=()=>{start=null;renderEditor();};
+ c.onpointerup=e=>{if(!start||!selectedRegion)return;const end=point(e);delete draft.questions[selectedRegion[0]].options[selectedRegion[1]].parts;draft.questions[selectedRegion[0]].options[selectedRegion[1]].rect={x1:Math.min(start[0],end[0]),y1:Math.min(start[1],end[1]),x2:Math.max(start[0],end[0]),y2:Math.max(start[1],end[1])};start=null;renderEditor();};
 }
 async function pdfToCanvases(file){const lib=await ensurePdfJs(),pdf=await lib.getDocument({data:new Uint8Array(await file.arrayBuffer()),wasmUrl:"./vendor/wasm/"}).promise,result=[];try{for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p),v=page.getViewport({scale:1}),view=page.getViewport({scale:REF_W/v.width}),c=document.createElement('canvas');c.width=Math.round(view.width);c.height=Math.round(view.height);await page.render({canvasContext:c.getContext('2d'),viewport:view}).promise;result.push(c);}return result;}finally{await pdf.destroy();}}
 async function imageFileToCanvas(file){const url=URL.createObjectURL(file);try{return await imageURLToCanvas(url);}finally{URL.revokeObjectURL(url);}}

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="만족도 조사 PDF를 업로드해 응답을 자동 판독하고 통계를 집계하는 도구">
   <title>Survey Insight | 만족도 조사 결과 분석</title>
-  <link rel="stylesheet" href="style.css?v=20261007-tour">
+  <link rel="stylesheet" href="style.css?v=20261007-editor">
 </head>
 <body>
   <div class="site-shell">
@@ -84,7 +84,6 @@
             </div>
 
             <div class="schema-actions"><button class="secondary-btn compact" id="editSchemaBtn">문항 구조 · 응답 영역 설정</button><span id="schemaSummary"></span></div>
-            <div id="schemaEditor" hidden></div>
             <div id="templatePreviewWrap" class="template-preview-wrap" hidden>
               <img id="templatePreview" alt="기준 설문 양식 미리보기">
             </div>
@@ -203,6 +202,11 @@
     </footer>
   </div>
 
+  <dialog id="schemaDialog" class="schema-dialog" aria-labelledby="schemaDialogTitle">
+    <header class="schema-dialog-head"><div><h2 id="schemaDialogTitle">문항 구조 · 응답 영역 설정</h2><p>왼쪽에서 선택지를 고르고, 오른쪽 원본에서 답변 칸을 드래그하세요.</p></div><button id="closeSchemaDialog" type="button" class="secondary-btn compact" aria-label="문항 설정 닫기">닫기 ×</button></header>
+    <div id="schemaEditor"></div>
+  </dialog>
+
   <div id="usageTour" class="tour-root" hidden>
     <div class="tour-block"></div>
     <div id="tourSpot" class="tour-spot" hidden></div>
@@ -243,6 +247,6 @@
   </div>
 
   <script src="engine.js?v=20261007-guide"></script>
-  <script src="script.js?v=20261007-tour"></script>
+  <script src="script.js?v=20261007-editor"></script>
 </body>
 </html>
