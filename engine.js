@@ -40,13 +40,49 @@ const SurveyEngine = (() => {
       }).sort((a,b)=>a.y-b.y||a.x-b.x);
       if(!items.length)throw new Error('텍스트가 없는 스캔 양식입니다. 한글·Word 등에서 내보낸 원본 PDF를 등록해주세요.');
       const rules=lines(g,W,H);
-      const headings=items.filter(i=>/^\d+[.)]\s/.test(i.text));
-      const questions=[];
+      const headings=items.filter(i=>/^\d+[.)](?:\s|$)/.test(i.text));
+      const questions=[],sectionCounts=new Map();
       for(let n=0;n<headings.length;n++){
         const heading=headings[n],end=headings[n+1]?.y??H*.87,section=heading.text.match(/^\d+/)[0];
+        const occurrence=(sectionCounts.get(section)||0)+1;sectionCounts.set(section,occurrence);
+        const key=occurrence===1?section:`${section}_s${occurrence}`;
         const body=items.filter(i=>i.y>heading.y+8&&i.y<end-6);
         const rr=rules.filter(r=>r.y>heading.y+10&&r.y<end);
         let found=false;
+        // Bare numeric scales (e.g. 5 4 3 2 1) can share the question's line.
+        // Require an ordered sequence in a separate answer column, not numbers in prose.
+        const numeric=[];
+        for(const t of items.filter(t=>t.y>=heading.y-10&&t.y<Math.min(end-6,heading.y+70)&&t.x>heading.x+80)){
+          if(!/^\d{1,2}(?:\s+\d{1,2})*$/.test(t.text))continue;
+          const tokens=[...t.text.matchAll(/\d+/g)];
+          for(const m of tokens)numeric.push({label:m[0],x:t.x+t.width*(m.index+m[0].length/2)/t.text.length,y:t.y,height:t.height});
+        }
+        const numericRows=[];
+        for(const t of numeric.sort((a,b)=>a.y-b.y||a.x-b.x)){
+          let row=numericRows.find(row=>Math.abs(row[0].y-t.y)<10);
+          if(!row){row=[];numericRows.push(row);}row.push(t);
+        }
+        const scale=numericRows.map(row=>row.sort((a,b)=>a.x-b.x)).find(row=>{
+          if(row.length<3||row.length>10)return false;
+          const step=Number(row[1].label)-Number(row[0].label);
+          return Math.abs(step)===1&&row.every((t,j)=>!j||(Number(t.label)-Number(row[j-1].label)===step&&t.x-row[j-1].x>15));
+        });
+        if(scale){
+          const y=scale.reduce((s,t)=>s+t.y,0)/scale.length;
+          const above=rules.filter(r=>r.y<y-5&&r.x1<scale[0].x&&r.x2>scale.at(-1).x).at(-1);
+          const below=rules.find(r=>r.y>y+5&&r.x1<scale[0].x&&r.x2>scale.at(-1).x);
+          const rowBounded=above&&below&&y-above.y<90&&below.y-y<90;
+          const borders=rowBounded?[above.x1,...verticals(g,above.y,below.y,above.x1+6,above.x2-6),above.x2]:[];
+          const options=scale.map((t,j)=>{
+            const gap=Math.min(j?t.x-scale[j-1].x:Infinity,j<scale.length-1?scale[j+1].x-t.x:Infinity);
+            const left=borders.filter(x=>x<t.x-3).at(-1),right=borders.find(x=>x>t.x+3);
+            const bounded=rowBounded&&left!=null&&right!=null&&right-left<gap*1.8;
+            return {label:t.label,rect:{x1:Math.max(0,bounded?left+5:t.x-gap*.43),x2:Math.min(W,bounded?right-5:t.x+gap*.43),y1:rowBounded?above.y+5:Math.max(0,y-23),y2:rowBounded?below.y-5:Math.min(H,y+23)}};
+          });
+          const label=items.filter(t=>t.y>=heading.y-10&&t.y<=y+18&&t.x<scale[0].x-25).map(t=>t.text).join(' ');
+          questions.push({id:`q${key}`,section,label:label||heading.text,type:'single',options});
+          continue;
+        }
         // A ruled matrix: first column is the row question; remaining cells are answer options.
         for(let k=0;k<Math.min(1,rr.length-2);k++){
           const xs=[rr[k].x1,...verticals(g,rr[k].y,rr[k+1].y,rr[k].x1+6,rr[k].x2-6),rr[k].x2];
@@ -57,7 +93,7 @@ const SurveyEngine = (() => {
           for(let r=k+1;r<rr.length-1;r++){
             const label=body.filter(t=>t.y>rr[r].y&&t.y<rr[r+1].y&&t.x<xs[1]).map(t=>t.text).join(' ');
             if(!label)break;
-            questions.push({id:`q${section}_${++row}`,section,label,type:'single',options:labels.map((label,j)=>({label,rect:{x1:xs[j+1]+7,y1:rr[r].y+5,x2:xs[j+2]-7,y2:rr[r+1].y-5}}))});
+            questions.push({id:`q${key}_${++row}`,section,label,type:'single',options:labels.map((label,j)=>({label,rect:{x1:xs[j+1]+7,y1:rr[r].y+5,x2:xs[j+2]-7,y2:rr[r+1].y-5}}))});
           }
           if(row){found=true;break;}
         }
@@ -88,9 +124,9 @@ const SurveyEngine = (() => {
         if(markers.length){
           const explicitMultiple=/복수|중복|모두\s*선택/.test(heading.text+' '+body.map(t=>t.text).join(' '));
           const uncertain=!/성별/.test(heading.text)&&!explicitMultiple;
-          questions.push({id:`q${section}`,section,label:heading.text,type:explicitMultiple?'multiple':'single',typeNeedsReview:uncertain,options:markers.map(o=>({label:o.label,parts:o.parts,rect:o.rect||{x1:Math.max(0,o.x-12),y1:o.y-17,x2:Math.min(W,o.end+14),y2:o.y+20}}))});
+          questions.push({id:`q${key}`,section,label:heading.text,type:explicitMultiple?'multiple':'single',typeNeedsReview:uncertain,options:markers.map(o=>({label:o.label,parts:o.parts,rect:o.rect||{x1:Math.max(0,o.x-12),y1:o.y-17,x2:Math.min(W,o.end+14),y2:o.y+20}}))});
         }else{
-          questions.push({id:`q${section}`,section,label:heading.text,type:'text',options:[]});
+          questions.push({id:`q${key}`,section,label:heading.text,type:'text',options:[]});
         }
       }
       if(!questions.length)throw new Error('문항 번호와 표를 자동 인식하지 못했습니다. 문항 구조를 직접 설정해주세요.');
