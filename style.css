@@ -827,3 +827,9 @@ th{
 #comparisonCanvas[hidden],#compareOpacityWrap[hidden] {display:none}
 .review-head>div:last-child {display:flex;flex-wrap:wrap;gap:6px}
 @media(max-width:700px){.comparison-settings{flex-direction:column;align-items:stretch}.comparison-settings select{width:100%}.modal{padding:8px}.modal-card{width:100%;padding:12px}}
+
+.position-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:end;border:1px solid #d8ddeb;border-radius:10px;margin:14px 0;padding:12px}
+.position-controls legend{font-size:13px;font-weight:700;padding:0 6px}
+.position-controls label{display:flex;flex-direction:column;gap:5px;font-size:12px}
+.position-controls input{width:92px;padding:8px;border:1px solid #d8ddeb;border-radius:7px;font:inherit}
+.position-controls .card-note{width:100%;margin:2px 0}

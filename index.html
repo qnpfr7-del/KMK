@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="만족도 조사 PDF를 업로드해 응답을 자동 판독하고 통계를 집계하는 도구">
   <title>Survey Insight | 만족도 조사 결과 분석</title>
-  <link rel="stylesheet" href="style.css?v=20261007-compare">
+  <link rel="stylesheet" href="style.css?v=20261007-position">
 </head>
 <body>
   <div class="site-shell">
@@ -216,13 +216,23 @@
         <label>문항 확대 <select id="compareQuestion"><option value="">전체 설문</option></select></label>
         <label id="compareOpacityWrap">스캔본 비중 <input id="compareOpacity" type="range" min="0" max="100" value="50"><span id="compareOpacityText">50%</span></label>
       </div>
+      <fieldset class="position-controls">
+        <legend>스캔본 위치 미세 조정</legend>
+        <label>좌우 (px)<input id="adjustX" type="number" min="-250" max="250" step="1" value="0"></label>
+        <label>상하 (px)<input id="adjustY" type="number" min="-250" max="250" step="1" value="0"></label>
+        <label>기울기 (°)<input id="adjustAngle" type="number" min="-5" max="5" step="0.1" value="0"></label>
+        <label>크기 (%)<input id="adjustScale" type="number" min="90" max="110" step="0.1" value="100"></label>
+        <button type="button" id="applyPosition" class="primary-btn compact">위치 적용 · 다시 판독</button>
+        <button type="button" id="resetPosition" class="secondary-btn compact">자동 정렬 위치로</button>
+        <p class="card-note" id="positionHelp">좌우 +는 오른쪽, 상하 +는 아래로 이동합니다. 표선을 맞춘 뒤 적용하세요. 적용하면 선택 응답을 다시 판독하며 검토 완료를 다시 눌러야 합니다.</p>
+      </fieldset>
       <p id="comparisonInfo" class="card-note" aria-live="polite"></p>
       <p id="comparisonLegend" class="card-note"></p>
       <canvas id="comparisonCanvas" width="1240" height="1753" aria-label="기본 양식과 스캔본 비교 이미지"></canvas>
     </div>
   </div>
 
-  <script src="engine.js?v=20261007-compare"></script>
-  <script src="script.js?v=20261007-compare"></script>
+  <script src="engine.js?v=20261007-position"></script>
+  <script src="script.js?v=20261007-position"></script>
 </body>
 </html>

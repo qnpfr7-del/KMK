@@ -131,28 +131,33 @@ const SurveyEngine = (() => {
       for(const [x,y] of points){const xx=Math.round(a*x+c*y+size/2+tx),yy=Math.round(b*x+d*y+h/2+ty);sum+=xx<1||yy<1||xx>=size-1||yy>=h-1?20:Math.min(20,dist[yy*size+xx]);}
       return sum/Math.max(1,points.length);
     }
-    let best={p:[1,0,0,1,0,0],score:Infinity};
-    for(const angle of [-3,-1.5,0,1.5,3])for(const scale of [.96,1,1.04])for(const dx of [-12,0,12])for(const dy of [-12,0,12]){
-      const r=angle*Math.PI/180,p=[scale*Math.cos(r),scale*Math.sin(r),-scale*Math.sin(r),scale*Math.cos(r),dx,dy],s=score(p);
-      if(s<best.score)best={p,score:s};
+    // Keep several starting poses: a large translation can otherwise settle on a neighbouring table row.
+    const seeds=[];
+    for(const angle of [-3,-1.5,0,1.5,3])for(const scale of [.96,1,1.04])for(const dx of [-72,-36,0,36,72])for(const dy of [-72,-36,0,36,72]){
+      const r=angle*Math.PI/180,p=[scale*Math.cos(r),scale*Math.sin(r),-scale*Math.sin(r),scale*Math.cos(r),dx,dy];seeds.push({p,score:score(p)});
     }
-    for(const step of [.016,.008,.004,.002,.001,.0005]){
-      for(let pass=0;pass<12;pass++){
+    // A dense translation pass finds the correct row before rotation/scale refinement.
+    for(let dx=-100;dx<=100;dx+=5)for(let dy=-100;dy<=100;dy+=5){const p=[1,0,0,1,dx,dy];seeds.push({p,score:score(p)});}
+    seeds.sort((a,b)=>a.score-b.score);let best=seeds[0];
+    const starts=[];for(const seed of seeds){if(!starts.some(s=>Math.abs(s.p[4]-seed.p[4])<15&&Math.abs(s.p[5]-seed.p[5])<15))starts.push(seed);if(starts.length===6)break;}
+    for(let candidate of starts){
+      for(const step of [.016,.008,.004,.002,.001,.0005])for(let pass=0;pass<12;pass++){
         let changed=false;
         for(let j=0;j<6;j++)for(const sign of [-1,1]){
-          const p=best.p.slice();p[j]+=sign*(j<4?step:step*700);
-          if(p[0]<.85||p[0]>1.15||p[3]<.85||p[3]>1.15||Math.abs(p[1])>.12||Math.abs(p[2])>.12||Math.abs(p[4])>45||Math.abs(p[5])>45)continue;
-          const s=score(p);if(s<best.score){best={p,score:s};changed=true;}
+          const p=candidate.p.slice();p[j]+=sign*(j<4?step:step*700);
+          if(p[0]<.85||p[0]>1.15||p[3]<.85||p[3]>1.15||Math.abs(p[1])>.12||Math.abs(p[2])>.12||Math.abs(p[4])>110||Math.abs(p[5])>110)continue;
+          const value=score(p);if(value<candidate.score){candidate={p,score:value};changed=true;}
         }
         if(!changed)break;
       }
+      if(candidate.score<best.score)best=candidate;
     }
     const [a,b,c,d,tx,ty]=best.p,dx=tx/ratio,dy=ty/ratio;
     const transform=[a,b,c,d,W/2+dx-a*W/2-c*H/2,H/2+dy-b*W/2-d*H/2];
     const inverse=new DOMMatrix(transform).inverse(),out=canvas(),ctx=out.getContext('2d');
     ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);ctx.setTransform(inverse);ctx.drawImage(src,0,0);
     const angle=Math.atan2(b,a)*180/Math.PI;
-    const atLimit=a<.855||a>1.145||d<.855||d>1.145||Math.abs(b)>.115||Math.abs(c)>.115||Math.abs(tx)>44||Math.abs(ty)>44;
+    const atLimit=a<.855||a>1.145||d<.855||d>1.145||Math.abs(b)>.115||Math.abs(c)>.115||Math.abs(tx)>109||Math.abs(ty)>109;
     return {canvas:out,meta:{score:best.score,angle,dx,dy,scaleX:Math.hypot(a,b),scaleY:Math.hypot(c,d),lowQuality:best.score>1.1||atLimit||points.length<50,atLimit,transform}};
   }
   // Estimate local paper brightness so grey scan backgrounds do not become handwriting.
@@ -242,5 +247,14 @@ const SurveyEngine = (() => {
     }
     return {answers,scores,warnings,localQuality:quality,...(visualize?{differenceDataUrl:differenceImage(comparison).toDataURL('image/png')}:{})};
   }
-  return {W,H,normalize,parsePdf,align,read,compare,differenceImage};
+  function adjust(src,values){
+    const out=canvas(),ctx=out.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);
+    ctx.translate(W/2+values.dx,H/2+values.dy);ctx.rotate(values.angle*Math.PI/180);ctx.scale(values.scale/100,values.scale/100);ctx.translate(-W/2,-H/2);ctx.drawImage(src,0,0,W,H);return out;
+  }
+  function adjustedMeta(c,template,schema,previous,values){
+    const quality=compare(c,template,schema).quality,checks=Object.values(quality).filter(q=>q.samples>=12);
+    const score=checks.length?checks.reduce((sum,q)=>sum+q.error,0)/checks.length/2:Infinity;
+    return {...previous,score:Number.isFinite(score)?score:99,lowQuality:!checks.length||score>1.1,manual:{...values}};
+  }
+  return {W,H,normalize,parsePdf,align,read,compare,differenceImage,adjust,adjustedMeta};
 })();

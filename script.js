@@ -23,6 +23,8 @@ function bindUI(){
  $('closeModal').onclick=closeModal;$('imageModal').onclick=e=>{if(e.target.id==='imageModal')closeModal();};
  document.querySelectorAll('[data-compare-mode]').forEach(b=>b.onclick=()=>{if(!comparisonState)return;comparisonState.mode=b.dataset.compareMode;drawComparison();});
  $('compareOpacity').oninput=drawComparison;$('compareQuestion').onchange=drawComparison;
+ for(const id of ['adjustX','adjustY','adjustAngle','adjustScale'])$(id).oninput=previewPosition;
+ $('applyPosition').onclick=applyPosition;$('resetPosition').onclick=()=>{setPositionValues({dx:0,dy:0,angle:0,scale:100});previewPosition();};
  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
  document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
 }
@@ -74,7 +76,7 @@ async function analyzeAll(){
  try{
   for(const file of selectedFiles){updateProgress(done,0,file.name+' 렌더링 중');const pages=file.type==='application/pdf'?await pdfToCanvases(file):[await imageFileToCanvas(file)];
    for(let i=0;i<pages.length;i++){updateProgress(i,pages.length,`${file.name} · ${i+1}/${pages.length}페이지 분석 중`);await nextFrame();const original=SurveyEngine.normalize(pages[i]),aligned=SurveyEngine.align(original,templateCanvas,schema),r=SurveyEngine.read(aligned.canvas,templateCanvas,schema,Number($('threshold').value),aligned.meta,true);
-    records.push({...r,id:crypto.randomUUID(),fileName:file.name,page:i+1,programName:file.name.replace(/\.pdf$/i,'').replace(/^만족도조사\((.*)\)$/,'$1'),alignment:aligned.meta,reviewed:false,imageDataUrl:original.toDataURL('image/jpeg',.8),alignedDataUrl:aligned.canvas.toDataURL('image/png')});done++;pages[i]=null;
+    records.push({...r,id:crypto.randomUUID(),fileName:file.name,page:i+1,programName:file.name.replace(/\.pdf$/i,'').replace(/^만족도조사\((.*)\)$/,'$1'),alignment:aligned.meta,threshold:Number($('threshold').value),reviewed:false,imageDataUrl:original.toDataURL('image/png'),alignedDataUrl:aligned.canvas.toDataURL('image/png')});done++;pages[i]=null;
    }
   }
   updateProgress(1,1,`분석 완료 · ${done}부`);renderResults();renderReview();switchView('review');
@@ -115,11 +117,11 @@ async function openComparison(id,mode='overlay'){
  $('modalTitle').textContent=r.fileName+' · '+r.page+'p';$('imageModal').classList.remove('hidden');
  $('comparisonInfo').textContent='비교 이미지 준비 중…';$('comparisonCanvas').hidden=true;comparisonState=null;
  try{
-  const [original,aligned,difference]=await Promise.all([loadImage(r.imageDataUrl),loadImage(r.alignedDataUrl),r.differenceDataUrl?loadImage(r.differenceDataUrl):Promise.resolve(null)]);
+  const [original,aligned,difference,automatic]=await Promise.all([loadImage(r.imageDataUrl),loadImage(r.alignedDataUrl),r.differenceDataUrl?loadImage(r.differenceDataUrl):Promise.resolve(null),loadImage(r.autoAlignedDataUrl||r.alignedDataUrl)]);
   if(request!==comparisonRequest)return;
-  comparisonState={r,mode,original,aligned,difference};
+  comparisonState={r,mode,original,aligned,difference,automatic,dirty:false};setPositionValues(r.alignment.manual||{dx:0,dy:0,angle:0,scale:100});
   $('compareQuestion').innerHTML='<option value="">전체 설문</option>'+schema.questions.filter(q=>q.type!=='text').map(q=>`<option value="${escapeAttr(q.id)}">${escapeHtml(q.label)}</option>`).join('');
-  $('compareOpacity').value='50';$('comparisonCanvas').hidden=false;drawComparison();
+  $('compareOpacity').value='50';$('positionHelp').textContent='좌우 +는 오른쪽, 상하 +는 아래로 이동합니다. 표선을 맞춘 뒤 적용하세요.';$('comparisonCanvas').hidden=false;drawComparison();
  }catch(e){if(request===comparisonRequest)$('comparisonInfo').textContent='비교 이미지를 불러오지 못했습니다.';}
 }
 function drawComparison(){
@@ -136,8 +138,8 @@ function drawComparison(){
  else if(mode==='reference')ctx.drawImage(templateCanvas,0,0);
  else if(mode==='aligned')ctx.drawImage(aligned,0,0,REF_W,REF_H);
  else if(mode==='overlay'){ctx.drawImage(templateCanvas,0,0);ctx.globalAlpha=opacity;ctx.drawImage(aligned,0,0,REF_W,REF_H);ctx.globalAlpha=1;}
- else {ctx.drawImage(templateCanvas,0,0);if(difference)ctx.drawImage(difference,0,0,REF_W,REF_H);}
- if(mode!=='original'&&mode!=='reference')for(const question of q?[q]:schema.questions){
+ else {ctx.drawImage(templateCanvas,0,0);if(comparisonState.dirty)ctx.drawImage(aligned,0,0,REF_W,REF_H);else if(difference)ctx.drawImage(difference,0,0,REF_W,REF_H);}
+ if(!comparisonState.dirty&&mode!=='original'&&mode!=='reference')for(const question of q?[q]:schema.questions){
   const warning=r.warnings.some(w=>w===question.id||w.startsWith(question.id+' '));
   for(const o of question.options){const box=o.rect,value=r.answers[question.id],selected=Array.isArray(value)?value.includes(o.label):value===o.label;
    ctx.strokeStyle=warning?'#d97706':selected?'#059669':'#7870b9';ctx.lineWidth=q?2:1;ctx.strokeRect(box.x1,box.y1,box.x2-box.x1,box.y2-box.y1);
@@ -145,13 +147,39 @@ function drawComparison(){
  }
  const answer=q?r.answers[q.id]:null,quality=q?r.localQuality?.[q.id]:null;
  const evidence=q?' · '+q.options.map((o,i)=>o.label+': '+(r.scores[q.id]?.[i]??0).toFixed(2)+'%').join(' / '):'';
- $('comparisonInfo').textContent=`회전 ${r.alignment.angle.toFixed(2)}° · 이동 X ${r.alignment.dx.toFixed(1)} / Y ${r.alignment.dy.toFixed(1)}px · 크기 X ${(r.alignment.scaleX*100).toFixed(1)} / Y ${(r.alignment.scaleY*100).toFixed(1)}%`+(q?' · 판독: '+(Array.isArray(answer)?answer.join(', '):answer||'미응답 / 미판독'):'')+(quality?' · 문항 정렬 오차 '+quality.error.toFixed(2)+'px':'')+evidence;
+ $('comparisonInfo').textContent=`회전 ${r.alignment.angle.toFixed(2)}° · 이동 X ${r.alignment.dx.toFixed(1)} / Y ${r.alignment.dy.toFixed(1)}px · 크기 X ${(r.alignment.scaleX*100).toFixed(1)} / Y ${(r.alignment.scaleY*100).toFixed(1)}%`+(r.alignment.manual?' · 추가 조정 X '+r.alignment.manual.dx+' / Y '+r.alignment.manual.dy+'px · 추가 회전 '+r.alignment.manual.angle+'° · 추가 크기 '+r.alignment.manual.scale+'%':'')+(q?' · 판독: '+(Array.isArray(answer)?answer.join(', '):answer||'미응답 / 미판독'):'')+(quality?' · 문항 정렬 오차 '+quality.error.toFixed(2)+'px':'')+evidence;
  $('comparisonLegend').textContent=mode==='difference'?'빨강: 선택지 영역에서 추출한 추가 잉크 후보 · 초록 테두리: 판독한 답변 · 주황: 검토 필요. 빨간 표시가 모두 확정 응답인 것은 아닙니다.':mode==='overlay'?'스캔본 비중을 바꾸며 표선이 겹치는지 확인하세요. 초록 테두리: 판독한 답변 · 주황: 검토 필요.':'문항을 선택하면 답변 영역을 확대합니다.';
+ if(comparisonState.dirty)$('comparisonLegend').textContent='위치 조정 미리보기입니다. 위치 적용 · 다시 판독을 눌러야 답변과 통계에 반영됩니다.';
  if(mode==='difference'&&!difference)$('comparisonLegend').textContent='검출 표시가 저장되지 않은 응답입니다. 다시 분석해주세요.';
+}
+function setPositionValues(v){$('adjustX').value=v.dx;$('adjustY').value=v.dy;$('adjustAngle').value=v.angle;$('adjustScale').value=v.scale;}
+function positionValues(){
+ const values={dx:Number($('adjustX').value),dy:Number($('adjustY').value),angle:Number($('adjustAngle').value),scale:Number($('adjustScale').value)};
+ if(Object.values(values).some(v=>!Number.isFinite(v))||Math.abs(values.dx)>250||Math.abs(values.dy)>250||Math.abs(values.angle)>5||values.scale<90||values.scale>110)return null;return values;
+}
+function previewPosition(){
+ if(!comparisonState)return;const v=positionValues();if(!v){$('positionHelp').textContent='좌우·상하 ±250px, 기울기 ±5°, 크기 90~110% 범위로 입력해주세요.';return;}
+ comparisonState.aligned=SurveyEngine.adjust(comparisonState.automatic,v);comparisonState.mode='overlay';comparisonState.dirty=true;drawComparison();
+ $('positionHelp').textContent='조정 중 · 표선이 겹치면 위치 적용 · 다시 판독을 누르세요. +는 오른쪽 / 아래입니다.';
+}
+async function applyPosition(){
+ const state=comparisonState,v=positionValues();if(!state||!v)return;
+ const request=comparisonRequest;for(const id of ['applyPosition','resetPosition','adjustX','adjustY','adjustAngle','adjustScale'])$(id).disabled=true;
+ try{
+  await nextFrame();if(request!==comparisonRequest)return;
+  const c=SurveyEngine.adjust(state.automatic,v),meta=SurveyEngine.adjustedMeta(c,templateCanvas,schema,state.r.alignment,v);
+  const result=SurveyEngine.read(c,templateCanvas,schema,state.r.threshold??.7,meta,true);
+  for(const q of schema.questions)if(q.type==='text')result.answers[q.id]=state.r.answers[q.id]||'';
+  result.warnings.push('위치 조정 후 확인 필요');
+  const difference=await loadImage(result.differenceDataUrl);if(request!==comparisonRequest)return;
+  const r=state.r;r.autoAlignedDataUrl??=r.alignedDataUrl;Object.assign(r,result,{alignment:meta,alignedDataUrl:c.toDataURL('image/png'),reviewed:false});
+  Object.assign(state,{aligned:c,difference,dirty:false,mode:'difference'});drawComparison();renderResults();renderReview();
+  $('positionHelp').textContent='위치를 적용해 다시 판독했습니다. 답변을 확인하고 창을 닫은 뒤 검토 완료로 확정해주세요.';
+ }catch(e){alert('위치 적용 실패: '+e.message);}finally{for(const id of ['applyPosition','resetPosition','adjustX','adjustY','adjustAngle','adjustScale'])$(id).disabled=false;}
 }
 function closeModal(){comparisonRequest++;comparisonState=null;$('imageModal').classList.add('hidden');const c=$('comparisonCanvas');c.width=1;c.height=1;}
 function resetAll(){if(busy)return;records=[];selectedFiles=[];$('fileInput').value='';setFiles([]);renderResults();renderReview();switchView('upload');}
-function downloadCSV(){if(!records.length)return;const headers=['파일명','페이지','프로그램명',...schema.questions.map(q=>q.label),'집계상태','검토사유','정렬각도','정렬오차'];const rows=records.map(r=>[r.fileName,r.page,r.programName,...schema.questions.map(q=>Array.isArray(r.answers[q.id])?r.answers[q.id].join('|'):r.answers[q.id]),recordIsConfirmed(r)?'유효':'검토 대기',r.warnings.join('|'),r.alignment.angle,r.alignment.score]);const csv='\uFEFF'+[headers,...rows].map(row=>row.map(v=>csvCell(/^[=+@-]/.test(String(v))?"'"+v:v)).join(',')).join('\r\n');const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download='만족도조사_문항별집계.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+function downloadCSV(){if(!records.length)return;const headers=['파일명','페이지','프로그램명',...schema.questions.map(q=>q.label),'집계상태','검토사유','정렬각도','정렬오차','수동좌우이동','수동상하이동','수동회전','수동크기'];const rows=records.map(r=>[r.fileName,r.page,r.programName,...schema.questions.map(q=>Array.isArray(r.answers[q.id])?r.answers[q.id].join('|'):r.answers[q.id]),recordIsConfirmed(r)?'유효':'검토 대기',r.warnings.join('|'),r.alignment.angle,r.alignment.score,r.alignment.manual?.dx??0,r.alignment.manual?.dy??0,r.alignment.manual?.angle??0,r.alignment.manual?.scale??100]);const csv='\uFEFF'+[headers,...rows].map(row=>row.map(v=>csvCell(/^[=+@-]/.test(String(v))?"'"+v:v)).join(',')).join('\r\n');const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download='만족도조사_문항별집계.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function bars(items,total){
   const max=Math.max(1,...items.map(x=>x[1]));
   return items.map(([label,count])=>{
