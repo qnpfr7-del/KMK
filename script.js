@@ -26,7 +26,7 @@ function bindUI(){
  $('compareOpacity').oninput=drawComparison;$('compareQuestion').onchange=drawComparison;
  for(const id of ['adjustX','adjustY','adjustAngle','adjustScale'])$(id).oninput=previewPosition;
  $('applyPosition').onclick=applyPosition;$('resetPosition').onclick=()=>{setPositionValues({dx:0,dy:0,angle:0,scale:100});previewPosition();};
- document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('usageGuide').open)closeModal();});
+ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!tourActive)closeModal();});
  document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
 }
 function validFile(f){return f.type==='application/pdf'||/^image\/(png|jpeg)$/.test(f.type);}
@@ -227,28 +227,79 @@ function shortLabel(s){return s.length>18?s.slice(0,18)+'…':s;}
 function escapeHtml(s=''){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function escapeAttr(s=''){return escapeHtml(s);}
 
-const USAGE_STEPS=[
- {short:'원본 등록',title:'작성 전 원본 양식을 등록하세요',items:['설문 분석 화면에서 기준 양식 변경을 누릅니다.','응답자가 작성한 종이와 같은 양식의 원본 PDF를 선택합니다. 한글·Word에서 내보낸 텍스트 포함 PDF를 권장합니다.','등록한 양식은 이 브라우저에 저장됩니다. 다른 기기·브라우저에서는 다시 등록해주세요.'],note:'프로그램명뿐 아니라 문항, 선택지, 표의 행 높이까지 같아야 합니다. 다른 양식은 위치 조정만으로 맞출 수 없습니다. 현재 한 페이지 원본을 지원합니다.'},
- {short:'문항 확인',title:'문항과 답변 위치를 확인·저장하세요',items:['자동으로 표시된 문항명, 선택지, 단일·복수 선택 방식을 확인합니다.','잘못 읽힌 내용은 수정합니다. 문항을 추가·삭제할 수도 있습니다.','답변 위치가 다르면 선택지의 영역 버튼을 누르고, 아래 원본에서 해당 답변 영역을 드래그합니다.','이 문항 구조로 저장을 누르면 양식이 사용 가능 상태가 됩니다.'],note:'문항 구조나 원본을 바꾸면 기존 분석 결과가 초기화됩니다. 필요한 결과는 먼저 CSV로 내려받으세요.'},
- {short:'응답 분석',title:'작성한 스캔본을 올리고 분석하세요',items:['응답 설문 업로드의 파일 선택을 누르거나 파일을 끌어 놓습니다. PDF·JPG·PNG를 여러 개 선택할 수 있습니다.','기준 양식이 사용 가능 상태인지 확인한 뒤 설문 분석 시작을 누릅니다.','분석이 끝나면 응답 검토 화면에서 페이지별 판독 결과를 확인합니다.'],note:'판독 민감도는 체크를 놓치면 낮추고, 빈칸을 체크로 오인하면 높입니다. 정렬이 어긋난 경우에는 민감도보다 양식과 위치를 먼저 확인하세요.'},
- {short:'위치 비교',title:'원본과 스캔본의 위치를 비교하세요',items:['응답 검토에서 해당 페이지의 원본과 겹쳐 비교를 누릅니다.','겹쳐 보기에서 스캔본 비중을 조절하고, 문항 확대에서 표선이 맞는지 확인합니다.','조정이 필요하면 좌우·상하 값을 입력합니다. +는 오른쪽·아래, −는 왼쪽·위입니다. 기울기와 크기도 조절할 수 있습니다.','표선이 맞으면 위치 적용 · 다시 판독을 누릅니다. 검출 표시의 빨간색은 추가 잉크 후보입니다.'],note:'조정 미리보기만으로 답변은 바뀌지 않습니다. 적용하면 해당 페이지의 선택 응답을 다시 판독하므로 답변을 다시 확인하세요. 위와 아래가 동시에 맞지 않으면 원본의 표 구조가 같은지 확인하세요.'},
- {short:'응답 검토',title:'답변을 확인하고 검토 완료로 확정하세요',items:['검토 필요만 필터로 확인할 페이지를 모아 봅니다.','스캔 원본과 검출 표시를 대조하고, 틀린 선택값을 직접 수정합니다.','자유 의견은 원본의 손글씨를 보고 직접 입력합니다. 자동 손글씨 판독은 지원하지 않습니다.','답변 확인을 마친 뒤 검토 완료로 확정을 누릅니다.'],note:'검토 대기 설문은 통계에서 제외됩니다. 검토 완료는 사람이 내용을 확인했다는 뜻입니다. 양식이 다른 페이지는 맞는 원본으로 다시 분석해주세요.'},
- {short:'결과 저장',title:'문항별 결과를 확인하고 CSV를 저장하세요',items:['집계 결과에서 총 설문지, 유효 집계, 검토 대기 수를 확인합니다.','각 문항의 통계를 프로그램별로 확인합니다. 복수응답 비율은 해당 프로그램의 유효 설문 수를 기준으로 계산합니다.','CSV 다운로드로 페이지별 응답값, 집계 상태, 검토 사유, 위치 보정값을 저장합니다.','새 작업을 시작하기 전 필요한 결과를 저장한 뒤 새로 시작을 누릅니다.'],note:'CSV에는 검토 대기 응답도 포함되며 집계 상태 열로 구분됩니다. 응답 분석 결과는 새로고침하면 사라지므로 작업을 마칠 때 내려받으세요.'}
+// Each step points at a real control; empty review pages keep their explanatory fallback.
+const TOUR_STEPS=[
+ {view:'upload',sel:'label[for="templateFileInput"]',title:'① 작성 전 원본 양식 등록',body:'응답자가 작성한 설문지와 같은 빈 원본 양식을 먼저 등록하세요.',todo:'기준 양식 변경 → 원본 PDF 또는 이미지 선택',tip:'문항·선택지·표의 행 높이까지 같아야 합니다. 다른 양식은 위치 조정만으로 맞출 수 없어요. 텍스트가 포함된 한 페이지 PDF를 권장합니다.'},
+ {view:'upload',sel:'#editSchemaBtn',title:'② 문항과 답변 위치 확인',body:'문항명, 선택지, 단일·복수 선택 방식을 확인합니다. 답변 칸 위치도 원본과 맞춰주세요.',todo:'문항 구조 · 응답 영역 설정 → 수정 → 이 문항 구조로 저장',tip:'위치가 틀리면 선택지의 영역 버튼을 누르고 원본에서 답변 칸을 드래그하세요. 양식·문항을 변경하면 기존 분석 결과가 초기화됩니다.'},
+ {view:'upload',sel:'#dropZone',title:'③ 작성한 스캔본 올리기',body:'체크가 들어 있는 실제 응답 설문지를 올립니다. 여러 파일과 여러 페이지 PDF를 함께 분석할 수 있어요.',todo:'파일 선택 → PDF·JPG·PNG 선택 (또는 파일 끌어 놓기)',tip:'빈 양식은 왼쪽에, 응답자가 작성한 스캔본은 이곳에 넣으세요.'},
+ {view:'upload',sel:'#threshold',title:'④ 판독 민감도 확인',body:'체크를 놓치면 값을 낮추고, 빈칸을 체크로 오인하면 값을 높여보세요.',todo:'처음에는 기본값으로 분석 → 판독 결과를 보고 조절',tip:'위치가 어긋난 경우에는 민감도보다 원본 양식과 스캔본 정렬을 먼저 확인하세요.'},
+ {view:'upload',sel:'#analyzeBtn',title:'⑤ 설문 분석 시작',body:'원본 문항을 저장하고 응답 파일을 선택하면 분석 버튼이 활성화됩니다. 완료되면 응답 검토 화면으로 이동해요.',todo:'설문 분석 시작 클릭 → 분석 완료까지 기다리기',tip:'안내를 마친 뒤 실제 파일을 넣고 진행하세요. 안내 중에는 분석을 실행하지 않습니다.'},
+ {view:'review',sel:'[data-compare]',fallback:'#reviewList',title:'⑥ 원본과 스캔본 겹쳐 비교',body:'분석 후 각 페이지의 원본과 겹쳐 비교 버튼으로 표선과 체크 위치를 확인하세요.',todo:'원본과 겹쳐 비교 → 겹쳐 보기 → 문항 확대',tip:'어긋나면 좌우·상하·기울기·크기를 조절한 뒤 위치 적용 · 다시 판독을 누르세요. +는 오른쪽·아래입니다. 위아래가 동시에 안 맞으면 같은 양식인지 확인하세요.'},
+ {view:'review',sel:'#reviewFilter',title:'⑦ 검토할 응답 모아 보기',body:'검토 필요만을 선택하면 확인이 필요한 설문지를 모아서 볼 수 있어요.',todo:'필터 선택 → 검토 필요만 → 원본과 응답 대조',tip:'분석 전에는 목록이 비어 있습니다. 실제 스캔본 분석이 끝나면 페이지별 응답이 나타나요.'},
+ {view:'review',sel:'[data-confirm]',fallback:'#reviewList',title:'⑧ 답변 수정하고 검토 완료',body:'틀린 선택값은 직접 고치고, 자유 의견은 원본 손글씨를 보고 입력하세요.',todo:'답변 확인·수정 → 검토 완료로 확정',tip:'검토 대기 설문은 통계에서 제외됩니다. 위치를 다시 적용한 페이지도 답변을 재확인하세요. 손글씨 의견은 자동으로 읽지 않습니다.'},
+ {view:'result',sel:'#downloadCsvBtn',title:'⑨ 집계 확인하고 CSV 저장',body:'집계 결과에서 유효 설문 수와 문항별·프로그램별 통계를 확인한 뒤 응답을 저장하세요.',todo:'집계 결과 확인 → CSV 다운로드',tip:'CSV에는 검토 대기 응답도 집계 상태와 함께 포함됩니다. 분석 결과는 새로고침하면 사라지므로 작업을 마칠 때 저장하세요.'}
 ];
-let guideStep=0,guideReturnFocus=null;
+let tourActive=false,tourStep=-1,tourFocus=null,tourView='upload',tourScroll=0,tourFrame=0;
 function bindGuide(){
- $('guideBtn').onclick=()=>{guideReturnFocus=document.activeElement;guideStep=0;renderGuide();$('usageGuide').showModal();$('guideTitle').focus();};
- $('closeGuide').onclick=()=>$('usageGuide').close();
- $('guidePrev').onclick=()=>{if(guideStep>0){guideStep--;renderGuide();}};
- $('guideNext').onclick=()=>{if(guideStep===USAGE_STEPS.length-1)$('usageGuide').close();else{guideStep++;renderGuide();}};
- $('usageGuide').addEventListener('close',()=>guideReturnFocus?.focus());
- $('usageGuide').addEventListener('click',e=>{if(e.target!==$('usageGuide'))return;const r=e.target.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)e.target.close();});
+ $('guideBtn').onclick=()=>{
+  if(tourActive)return;
+  tourFocus=document.activeElement;tourView=document.querySelector('.nav.active').dataset.view;tourScroll=window.scrollY;
+  tourActive=true;$('usageTour').hidden=false;document.querySelector('.site-shell').inert=true;showTour(-1);
+ };
+ $('tourPop').onclick=e=>{
+  const action=e.target.closest('[data-tour]')?.dataset.tour;
+  if(action==='close')closeTour();
+  if(action==='prev')showTour(tourStep-1);
+  if(action==='next'){if(tourStep===TOUR_STEPS.length-1)closeTour();else showTour(tourStep+1);}
+ };
+ document.addEventListener('keydown',e=>{
+  if(!tourActive)return;
+  if(e.key==='Escape'){e.preventDefault();closeTour();return;}
+  if(e.key==='Tab'){
+   const buttons=[...$('tourPop').querySelectorAll('button')],first=buttons[0],last=buttons.at(-1);
+   if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+   else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
+  }
+ });
+ window.addEventListener('resize',queueTourPosition);window.addEventListener('scroll',queueTourPosition,{passive:true});
 }
-function renderGuide(){
- const step=USAGE_STEPS[guideStep];
- $('guideSteps').innerHTML=USAGE_STEPS.map((s,i)=>`<button type="button" data-guide-step="${i}" ${i===guideStep?'aria-current="step"':''}><span>${i+1}</span>${s.short}</button>`).join('');
- $('guideSteps').querySelectorAll('[data-guide-step]').forEach(b=>b.onclick=()=>{guideStep=Number(b.dataset.guideStep);renderGuide();});
- $('guideBody').innerHTML=`<span class="section-kicker">STEP ${guideStep+1}</span><h2 id="guideTitle" tabindex="-1">${step.title}</h2><ol>${step.items.map(i=>`<li>${i}</li>`).join('')}</ol><p class="guide-note">${step.note}</p>`;
- $('guideProgress').textContent=`${guideStep+1} / ${USAGE_STEPS.length}`;$('guidePrev').disabled=guideStep===0;$('guideNext').textContent=guideStep===USAGE_STEPS.length-1?'사용법 닫기':'다음 단계';
- if($('usageGuide').open){$('guideTitle').focus();$('usageGuide').scrollTop=0;}
+function tourTarget(){
+ const step=TOUR_STEPS[tourStep];if(!step)return null;
+ return [step.sel,step.fallback].filter(Boolean).map(s=>document.querySelector(s)).find(el=>el&&el.getBoundingClientRect().height>0)||null;
+}
+function showTour(index){
+ tourStep=Math.max(-1,Math.min(TOUR_STEPS.length-1,index));const step=TOUR_STEPS[tourStep],pop=$('tourPop');
+ pop.innerHTML=step?`<div class="tour-count"><span>단계 ${tourStep+1} / ${TOUR_STEPS.length}</span><span class="tour-bar"><i style="width:${(tourStep+1)/TOUR_STEPS.length*100}%"></i></span><button class="tour-btn ghost" data-tour="close" aria-label="사용법 닫기">닫기 ×</button></div><h2 id="tourTitle">${step.title}</h2><p>${step.body}</p><div class="tour-do">👉 ${step.todo}</div><p class="tour-tip">💡 ${step.tip}</p><div class="tour-actions"><button class="tour-btn" data-tour="prev">← 이전</button><button class="tour-btn primary" data-tour="next">${tourStep===TOUR_STEPS.length-1?'안내 마치기 ✓':'다음 →'}</button></div>`:
+ `<span class="section-kicker">화면 따라 배우기</span><h2 id="tourTitle">처음이라면 순서대로 따라와 주세요</h2><p>실제 화면에서 어디를 누르면 되는지 하나씩 짚어드릴게요.</p><ol class="tour-overview"><li>빈 원본 등록 · 문항과 위치 확인</li><li>스캔 응답 업로드 · 분석</li><li>위치 비교 · 답변 검토</li><li>집계 결과 확인 · CSV 저장</li></ol><div class="tour-actions"><button class="tour-btn ghost" data-tour="close">다음에 볼게요</button><button class="tour-btn primary" data-tour="next">안내 시작하기</button></div>`;
+ pop.classList.toggle('center',!step);
+ if(step){
+  switchView(step.view);
+  const target=tourTarget();
+  if(target){
+   const rect=target.getBoundingClientRect(),mobile=innerWidth<=650;
+   window.scrollTo({top:Math.max(0,window.scrollY+rect.top-(mobile?80:Math.max(80,(innerHeight-rect.height)/2))),behavior:'instant'});
+  }
+ }
+ placeTour();pop.querySelector('.primary').focus({preventScroll:true});queueTourPosition();
+}
+function queueTourPosition(){if(!tourActive||tourFrame)return;tourFrame=requestAnimationFrame(()=>{tourFrame=0;placeTour();});}
+function placeTour(){
+ if(!tourActive)return;
+ const pop=$('tourPop'),spot=$('tourSpot'),target=tourTarget(),pw=pop.offsetWidth,ph=pop.offsetHeight,gap=18;
+ if(!target){spot.hidden=true;$('usageTour').classList.add('tour-centered');pop.style.left=Math.max(12,(innerWidth-pw)/2)+'px';pop.style.top=Math.max(12,(innerHeight-ph)/2)+'px';return;}
+ $('usageTour').classList.remove('tour-centered');spot.hidden=false;
+ const r=target.getBoundingClientRect(),left=Math.max(4,r.left-8),top=Math.max(4,r.top-8),right=Math.min(innerWidth-4,r.right+8),bottom=Math.min(innerHeight-4,r.bottom+8);
+ Object.assign(spot.style,{left:left+'px',top:top+'px',width:Math.max(0,right-left)+'px',height:Math.max(0,bottom-top)+'px'});
+ let x=left,y=bottom+gap;
+ if(innerWidth<=650){x=(innerWidth-pw)/2;y=innerHeight-ph-12;}
+ else if(right+gap+pw<=innerWidth-12){x=right+gap;y=top;}
+ else if(left-gap-pw>=12){x=left-gap-pw;y=top;}
+ else if(y+ph>innerHeight-12){y=top-gap-ph;}
+ x=Math.max(12,Math.min(x,innerWidth-pw-12));y=Math.max(12,Math.min(y,innerHeight-ph-12));
+ Object.assign(pop.style,{left:x+'px',top:y+'px'});
+}
+function closeTour(){
+ if(!tourActive)return;
+ tourActive=false;$('usageTour').hidden=true;document.querySelector('.site-shell').inert=false;
+ cancelAnimationFrame(tourFrame);tourFrame=0;switchView(tourView);window.scrollTo({top:tourScroll,behavior:'instant'});tourFocus?.focus({preventScroll:true});
 }
