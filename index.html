@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="만족도 조사 PDF를 업로드해 응답을 자동 판독하고 통계를 집계하는 도구">
   <title>Survey Insight | 만족도 조사 결과 분석</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=20261007-compare">
 </head>
 <body>
   <div class="site-shell">
@@ -176,7 +176,7 @@
           <div>
             <span class="section-kicker">REVIEW</span>
             <h2>응답 검토</h2>
-            <p>자동 판독이 애매한 설문을 확인하고 필요한 값만 직접 보정합니다.</p>
+            <p>원본과 보정된 스캔본을 겹쳐 확인하고, 검출 표시를 문항별로 검토합니다.</p>
           </div>
           <select id="reviewFilter" class="filter-select" aria-label="응답 검토 필터">
             <option value="all">전체 설문</option>
@@ -205,11 +205,24 @@
         <strong id="modalTitle">설문 원본</strong>
         <button id="closeModal" type="button" aria-label="닫기">×</button>
       </div>
-      <img id="modalImage" alt="설문 원본">
+      <div class="comparison-toolbar" aria-label="비교 보기 방식">
+        <button type="button" data-compare-mode="original">스캔 원본</button>
+        <button type="button" data-compare-mode="reference">기본 양식</button>
+        <button type="button" data-compare-mode="aligned">보정된 스캔본</button>
+        <button type="button" data-compare-mode="overlay">겹쳐 보기</button>
+        <button type="button" data-compare-mode="difference">검출 표시</button>
+      </div>
+      <div class="comparison-settings">
+        <label>문항 확대 <select id="compareQuestion"><option value="">전체 설문</option></select></label>
+        <label id="compareOpacityWrap">스캔본 비중 <input id="compareOpacity" type="range" min="0" max="100" value="50"><span id="compareOpacityText">50%</span></label>
+      </div>
+      <p id="comparisonInfo" class="card-note" aria-live="polite"></p>
+      <p id="comparisonLegend" class="card-note"></p>
+      <canvas id="comparisonCanvas" width="1240" height="1753" aria-label="기본 양식과 스캔본 비교 이미지"></canvas>
     </div>
   </div>
 
-  <script src="engine.js"></script>
-  <script src="script.js"></script>
+  <script src="engine.js?v=20261007-compare"></script>
+  <script src="script.js?v=20261007-compare"></script>
 </body>
 </html>

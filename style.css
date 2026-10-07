@@ -814,3 +814,16 @@ th{
 #schemaEditor .button-row {flex-wrap:wrap}#regionCanvas {width:100%;height:auto;display:block;border:1px solid #d8ddeb;touch-action:none;margin-top:12px;cursor:crosshair}
 .type-note {font-size:12px;color:#9a5700}.review-card input:not([type=checkbox]),.review-card textarea {width:100%}
 #questionResults h3 {font-size:18px;line-height:1.6}#questionResults h4 {margin:10px 0 16px}.result-card-head {flex-wrap:wrap}
+
+.comparison-toolbar {display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 14px}
+.comparison-toolbar button {padding:9px 12px;background:#f2f3f8;border:1px solid #d8ddeb;border-radius:8px;font:inherit;font-size:13px;cursor:pointer}
+.comparison-toolbar button.active {background:#6245d8;color:white;border-color:#6245d8}
+.comparison-settings {display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+.comparison-settings label {display:flex;align-items:center;gap:8px;font-size:13px;max-width:100%}
+.comparison-settings select {max-width:350px;min-width:0;padding:7px;border:1px solid #d8ddeb;border-radius:7px}
+.comparison-settings input {width:130px}
+#comparisonInfo {overflow-wrap:anywhere}
+#comparisonCanvas {display:block;max-width:100%;height:auto;margin:12px auto;border:1px solid #d8ddeb}
+#comparisonCanvas[hidden],#compareOpacityWrap[hidden] {display:none}
+.review-head>div:last-child {display:flex;flex-wrap:wrap;gap:6px}
+@media(max-width:700px){.comparison-settings{flex-direction:column;align-items:stretch}.comparison-settings select{width:100%}.modal{padding:8px}.modal-card{width:100%;padding:12px}}
