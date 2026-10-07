@@ -833,3 +833,22 @@ th{
 .position-controls label{display:flex;flex-direction:column;gap:5px;font-size:12px}
 .position-controls input{width:92px;padding:8px;border:1px solid #d8ddeb;border-radius:7px;font:inherit}
 .position-controls .card-note{width:100%;margin:2px 0}
+
+.header-actions{display:flex;gap:8px;align-items:center;justify-self:end}
+.guide-trigger{color:#6245d8;border-color:#d8cff6;background:#f5f2ff;white-space:nowrap}
+.usage-guide{width:min(760px,calc(100vw - 32px));max-height:90dvh;overflow:auto;border:0;border-radius:20px;padding:26px;color:var(--text);box-shadow:0 20px 80px #15102540}
+.usage-guide::backdrop{background:rgba(13,16,25,.62);backdrop-filter:blur(4px)}
+.guide-head{display:flex;justify-content:space-between;align-items:center;font-size:20px}
+.guide-head button{width:34px;height:34px;border-radius:9px;font-size:24px;background:#f2f3f8}
+.guide-intro{font-size:14px;color:#64748b;line-height:1.7;margin:10px 0 20px}
+.guide-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-bottom:24px}
+.guide-steps button{display:flex;align-items:center;gap:8px;text-align:left;padding:10px;border:1px solid #e1e4ef;border-radius:10px;background:#fafbff;font-size:13px}
+.guide-steps button span{display:grid;place-items:center;width:23px;height:23px;border-radius:50%;background:#ececf5;font-size:12px;flex-shrink:0}
+.guide-steps button[aria-current]{background:#f0eaff;border-color:#9e87ef;color:#6245d8;font-weight:700}
+.guide-body h2{font-size:24px;line-height:1.5;margin:8px 0 14px;outline:0}
+.guide-body ol{padding-left:23px;margin:0;line-height:1.8;font-size:15px}
+.guide-body li+li{margin-top:9px}
+.guide-note{font-size:13px;line-height:1.8;padding:14px;background:#f5f2ff;border-radius:10px;margin:20px 0}
+.guide-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid #e6e9f2;padding-top:16px;font-size:13px}
+.usage-guide button:focus-visible{outline:3px solid #9e87ef;outline-offset:2px}
+@media(max-width:700px){.site-header{gap:10px}.header-actions{gap:5px}.usage-guide{padding:18px;max-height:92dvh}.guide-steps{grid-template-columns:repeat(2,minmax(0,1fr))}.guide-body h2{font-size:21px}.guide-footer button{padding:10px 12px}.guide-body ol{font-size:14px}}

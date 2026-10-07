@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="만족도 조사 PDF를 업로드해 응답을 자동 판독하고 통계를 집계하는 도구">
   <title>Survey Insight | 만족도 조사 결과 분석</title>
-  <link rel="stylesheet" href="style.css?v=20261007-position">
+  <link rel="stylesheet" href="style.css?v=20261007-guide">
 </head>
 <body>
   <div class="site-shell">
@@ -24,7 +24,10 @@
         <button class="nav" data-view="review">응답 검토</button>
       </nav>
 
-      <button class="ghost-btn" id="resetBtn" type="button">새로 시작</button>
+      <div class="header-actions">
+        <button class="ghost-btn guide-trigger" id="guideBtn" type="button" aria-haspopup="dialog" aria-controls="usageGuide">단계별 사용법</button>
+        <button class="ghost-btn" id="resetBtn" type="button">새로 시작</button>
+      </div>
     </header>
 
     <main class="main">
@@ -199,6 +202,14 @@
     </footer>
   </div>
 
+  <dialog id="usageGuide" class="usage-guide" aria-labelledby="usageGuideTitle">
+    <div class="guide-head"><strong id="usageGuideTitle">단계별 사용법</strong><button type="button" id="closeGuide" aria-label="사용법 닫기">×</button></div>
+    <p class="guide-intro">원본 양식을 등록하고, 스캔 응답을 분석·검토한 뒤 집계하세요.</p>
+    <nav id="guideSteps" class="guide-steps" aria-label="사용법 단계"></nav>
+    <section class="guide-body" id="guideBody" aria-labelledby="guideTitle"></section>
+    <div class="guide-footer"><button type="button" id="guidePrev" class="secondary-btn compact">이전 단계</button><span id="guideProgress" aria-live="polite"></span><button type="button" id="guideNext" class="primary-btn compact">다음 단계</button></div>
+  </dialog>
+
   <div id="imageModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal-card">
       <div class="modal-head">
@@ -232,7 +243,7 @@
     </div>
   </div>
 
-  <script src="engine.js?v=20261007-position"></script>
-  <script src="script.js?v=20261007-position"></script>
+  <script src="engine.js?v=20261007-guide"></script>
+  <script src="script.js?v=20261007-guide"></script>
 </body>
 </html>

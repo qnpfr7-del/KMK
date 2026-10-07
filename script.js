@@ -5,6 +5,7 @@ let comparisonState=null,comparisonRequest=0;
 const SCALE_LABELS=['매우 만족','만족','보통','불만족','매우 불만족'];
 document.addEventListener('DOMContentLoaded',async()=>{bindUI();try{await loadTemplate();}catch(e){setTemplateStatus('원본 PDF 등록 필요');$('schemaSummary').textContent=e.message;}});
 function bindUI(){
+ bindGuide();
  $('fileInput').onchange=e=>setFiles([...e.target.files]);
  for(const n of ['dragenter','dragover'])$('dropZone').addEventListener(n,e=>{e.preventDefault();$('dropZone').classList.add('drag');});
  for(const n of ['dragleave','drop'])$('dropZone').addEventListener(n,e=>{e.preventDefault();$('dropZone').classList.remove('drag');});
@@ -25,7 +26,7 @@ function bindUI(){
  $('compareOpacity').oninput=drawComparison;$('compareQuestion').onchange=drawComparison;
  for(const id of ['adjustX','adjustY','adjustAngle','adjustScale'])$(id).oninput=previewPosition;
  $('applyPosition').onclick=applyPosition;$('resetPosition').onclick=()=>{setPositionValues({dx:0,dy:0,angle:0,scale:100});previewPosition();};
- document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('usageGuide').open)closeModal();});
  document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
 }
 function validFile(f){return f.type==='application/pdf'||/^image\/(png|jpeg)$/.test(f.type);}
@@ -225,3 +226,29 @@ function csvCell(v){const s=String(v??'');return '"'+s.replaceAll('"','""')+'"';
 function shortLabel(s){return s.length>18?s.slice(0,18)+'…':s;}
 function escapeHtml(s=''){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function escapeAttr(s=''){return escapeHtml(s);}
+
+const USAGE_STEPS=[
+ {short:'원본 등록',title:'작성 전 원본 양식을 등록하세요',items:['설문 분석 화면에서 기준 양식 변경을 누릅니다.','응답자가 작성한 종이와 같은 양식의 원본 PDF를 선택합니다. 한글·Word에서 내보낸 텍스트 포함 PDF를 권장합니다.','등록한 양식은 이 브라우저에 저장됩니다. 다른 기기·브라우저에서는 다시 등록해주세요.'],note:'프로그램명뿐 아니라 문항, 선택지, 표의 행 높이까지 같아야 합니다. 다른 양식은 위치 조정만으로 맞출 수 없습니다. 현재 한 페이지 원본을 지원합니다.'},
+ {short:'문항 확인',title:'문항과 답변 위치를 확인·저장하세요',items:['자동으로 표시된 문항명, 선택지, 단일·복수 선택 방식을 확인합니다.','잘못 읽힌 내용은 수정합니다. 문항을 추가·삭제할 수도 있습니다.','답변 위치가 다르면 선택지의 영역 버튼을 누르고, 아래 원본에서 해당 답변 영역을 드래그합니다.','이 문항 구조로 저장을 누르면 양식이 사용 가능 상태가 됩니다.'],note:'문항 구조나 원본을 바꾸면 기존 분석 결과가 초기화됩니다. 필요한 결과는 먼저 CSV로 내려받으세요.'},
+ {short:'응답 분석',title:'작성한 스캔본을 올리고 분석하세요',items:['응답 설문 업로드의 파일 선택을 누르거나 파일을 끌어 놓습니다. PDF·JPG·PNG를 여러 개 선택할 수 있습니다.','기준 양식이 사용 가능 상태인지 확인한 뒤 설문 분석 시작을 누릅니다.','분석이 끝나면 응답 검토 화면에서 페이지별 판독 결과를 확인합니다.'],note:'판독 민감도는 체크를 놓치면 낮추고, 빈칸을 체크로 오인하면 높입니다. 정렬이 어긋난 경우에는 민감도보다 양식과 위치를 먼저 확인하세요.'},
+ {short:'위치 비교',title:'원본과 스캔본의 위치를 비교하세요',items:['응답 검토에서 해당 페이지의 원본과 겹쳐 비교를 누릅니다.','겹쳐 보기에서 스캔본 비중을 조절하고, 문항 확대에서 표선이 맞는지 확인합니다.','조정이 필요하면 좌우·상하 값을 입력합니다. +는 오른쪽·아래, −는 왼쪽·위입니다. 기울기와 크기도 조절할 수 있습니다.','표선이 맞으면 위치 적용 · 다시 판독을 누릅니다. 검출 표시의 빨간색은 추가 잉크 후보입니다.'],note:'조정 미리보기만으로 답변은 바뀌지 않습니다. 적용하면 해당 페이지의 선택 응답을 다시 판독하므로 답변을 다시 확인하세요. 위와 아래가 동시에 맞지 않으면 원본의 표 구조가 같은지 확인하세요.'},
+ {short:'응답 검토',title:'답변을 확인하고 검토 완료로 확정하세요',items:['검토 필요만 필터로 확인할 페이지를 모아 봅니다.','스캔 원본과 검출 표시를 대조하고, 틀린 선택값을 직접 수정합니다.','자유 의견은 원본의 손글씨를 보고 직접 입력합니다. 자동 손글씨 판독은 지원하지 않습니다.','답변 확인을 마친 뒤 검토 완료로 확정을 누릅니다.'],note:'검토 대기 설문은 통계에서 제외됩니다. 검토 완료는 사람이 내용을 확인했다는 뜻입니다. 양식이 다른 페이지는 맞는 원본으로 다시 분석해주세요.'},
+ {short:'결과 저장',title:'문항별 결과를 확인하고 CSV를 저장하세요',items:['집계 결과에서 총 설문지, 유효 집계, 검토 대기 수를 확인합니다.','각 문항의 통계를 프로그램별로 확인합니다. 복수응답 비율은 해당 프로그램의 유효 설문 수를 기준으로 계산합니다.','CSV 다운로드로 페이지별 응답값, 집계 상태, 검토 사유, 위치 보정값을 저장합니다.','새 작업을 시작하기 전 필요한 결과를 저장한 뒤 새로 시작을 누릅니다.'],note:'CSV에는 검토 대기 응답도 포함되며 집계 상태 열로 구분됩니다. 응답 분석 결과는 새로고침하면 사라지므로 작업을 마칠 때 내려받으세요.'}
+];
+let guideStep=0,guideReturnFocus=null;
+function bindGuide(){
+ $('guideBtn').onclick=()=>{guideReturnFocus=document.activeElement;guideStep=0;renderGuide();$('usageGuide').showModal();$('guideTitle').focus();};
+ $('closeGuide').onclick=()=>$('usageGuide').close();
+ $('guidePrev').onclick=()=>{if(guideStep>0){guideStep--;renderGuide();}};
+ $('guideNext').onclick=()=>{if(guideStep===USAGE_STEPS.length-1)$('usageGuide').close();else{guideStep++;renderGuide();}};
+ $('usageGuide').addEventListener('close',()=>guideReturnFocus?.focus());
+ $('usageGuide').addEventListener('click',e=>{if(e.target!==$('usageGuide'))return;const r=e.target.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)e.target.close();});
+}
+function renderGuide(){
+ const step=USAGE_STEPS[guideStep];
+ $('guideSteps').innerHTML=USAGE_STEPS.map((s,i)=>`<button type="button" data-guide-step="${i}" ${i===guideStep?'aria-current="step"':''}><span>${i+1}</span>${s.short}</button>`).join('');
+ $('guideSteps').querySelectorAll('[data-guide-step]').forEach(b=>b.onclick=()=>{guideStep=Number(b.dataset.guideStep);renderGuide();});
+ $('guideBody').innerHTML=`<span class="section-kicker">STEP ${guideStep+1}</span><h2 id="guideTitle" tabindex="-1">${step.title}</h2><ol>${step.items.map(i=>`<li>${i}</li>`).join('')}</ol><p class="guide-note">${step.note}</p>`;
+ $('guideProgress').textContent=`${guideStep+1} / ${USAGE_STEPS.length}`;$('guidePrev').disabled=guideStep===0;$('guideNext').textContent=guideStep===USAGE_STEPS.length-1?'사용법 닫기':'다음 단계';
+ if($('usageGuide').open){$('guideTitle').focus();$('usageGuide').scrollTop=0;}
+}
