@@ -40,10 +40,21 @@ async function dbOperation(op,value){
  return new Promise((resolve,reject)=>{const t=db.transaction('settings',op==='get'?'readonly':'readwrite'),s=t.objectStore('settings');let result;
  const r=op==='get'?s.get('activeTemplate'):op==='delete'?s.delete('activeTemplate'):s.put(value,'activeTemplate');r.onsuccess=()=>result=r.result;t.oncomplete=()=>{db.close();resolve(result);};t.onerror=()=>{db.close();reject(t.error);};});
 }
-async function loadTemplate(){const saved=await dbOperation('get');if(saved?.schema?.version===2){templateCanvas=await imageURLToCanvas(saved.dataUrl);schema=saved.schema;templateName=saved.name;displayTemplate();setTemplateStatus(schema.confirmed?'사용 가능':'문항 확인 필요');updateReady();}else await loadDefaultTemplate();}
+const DEFAULT_TEMPLATE_REVISION='20261007-anonymous';
+async function loadTemplate(){
+ const saved=await dbOperation('get');
+ const legacyDefault=saved&&['기본 이미지 양식','기본 template.png','기본 양식'].includes(saved.name);
+ if(saved?.schema?.version===2&&!legacyDefault&&(saved.source!=='default'||saved.defaultRevision===DEFAULT_TEMPLATE_REVISION)){
+  templateCanvas=await imageURLToCanvas(saved.dataUrl);schema=saved.schema;templateName=saved.name;displayTemplate();setTemplateStatus(schema.confirmed?'사용 가능':'문항 확인 필요');updateReady();
+ }else await loadDefaultTemplate();
+}
 async function loadDefaultTemplate(){
- // Legacy raster templates contain no text geometry: require registration rather than silently reusing old fixed coordinates.
- templateCanvas=await imageURLToCanvas('template.png');templateName='기본 이미지 양식';schema={version:2,questions:[],confirmed:false};displayTemplate();$('schemaSummary').textContent='원본 PDF를 등록하거나 문항·응답 영역을 직접 설정하세요.';setTemplateStatus('원본 PDF 등록 필요');updateReady();
+ const response=await fetch('./assets/default-survey-template.pdf?v='+DEFAULT_TEMPLATE_REVISION);
+ if(!response.ok)throw new Error('기본 예시 양식을 불러오지 못했습니다. 원본 PDF를 직접 등록해주세요.');
+ const next=await SurveyEngine.parsePdf(new File([await response.arrayBuffer()],'만족도 설문조사서(예시).pdf',{type:'application/pdf'}),await ensurePdfJs());
+ templateCanvas=next.canvas;schema=next.schema;templateName='기본 예시 양식.pdf';
+ displayTemplate();setTemplateStatus('문항 확인 필요');updateReady();
+ await dbOperation('put',{name:templateName,schema,dataUrl:templateCanvas.toDataURL('image/png'),source:'default',defaultRevision:DEFAULT_TEMPLATE_REVISION});
 }
 async function imageURLToCanvas(url){const img=await loadImage(url),c=document.createElement('canvas');c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext('2d').drawImage(img,0,0);return SurveyEngine.normalize(c);}
 function displayTemplate(){ $('templateName').value=templateName;$('templatePreview').src=templateCanvas.toDataURL('image/jpeg',.85);$('templatePreviewWrap').hidden=false;$('schemaSummary').textContent=`${schema.questions.length}개 문항 · ${schema.confirmed?'확인 완료':'확인 필요'}`;}
