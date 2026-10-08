@@ -4,13 +4,13 @@ const SurveyEngine = (() => {
   const gray = data => {const g=new Uint8Array(data.length/4);for(let i=0;i<g.length;i++)g[i]=(data[i*4]+data[i*4+1]+data[i*4+2])/3;return g;};
   const canvas = (w=W,h=H) => {const c=document.createElement('canvas');c.width=w;c.height=h;return c;};
   function normalize(src){const c=canvas();const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,W,H);x.drawImage(src,0,0,W,H);return c;}
-  function lines(g,w,h){
+  function lines(g,w,h,minWidth=.5,threshold=170){
     const result=[];
     for(let y=0;y<h;y++){
       let start=-1,gaps=0;
       for(let x=0;x<=w;x++){
-        if(x<w&&g[y*w+x]<170){if(start<0)start=x;gaps=0;}
-        else if(start>=0&&++gaps>3){if(x-start>w*.5)result.push({y,x1:start,x2:x-gaps});start=-1;}
+        if(x<w&&g[y*w+x]<threshold){if(start<0)start=x;gaps=0;}
+        else if(start>=0&&++gaps>3){if(x-start>w*minWidth)result.push({y,x1:start,x2:x-gaps});start=-1;}
       }
     }
     const out=[];
@@ -133,8 +133,8 @@ const SurveyEngine = (() => {
       return {canvas:c,schema:{version:2,questions,confirmed:false}};
     }finally{await pdf.destroy();}
   }
-  function distance(g,w,h){
-    const d=new Float32Array(w*h);for(let i=0;i<d.length;i++)d[i]=g[i]<215?0:1000;
+  function distance(g,w,h,threshold=215){
+    const d=new Float32Array(w*h);for(let i=0;i<d.length;i++)d[i]=g[i]<threshold?0:1000;
     for(let y=1;y<h;y++)for(let x=1;x<w-1;x++){const i=y*w+x;d[i]=Math.min(d[i],d[i-1]+1,d[i-w]+1,d[i-w-1]+1.414,d[i-w+1]+1.414);}
     for(let y=h-2;y>=0;y--)for(let x=w-2;x>0;x--){const i=y*w+x;d[i]=Math.min(d[i],d[i+1]+1,d[i+w]+1,d[i+w+1]+1.414,d[i+w-1]+1.414);}
     return d;
@@ -150,13 +150,86 @@ const SurveyEngine = (() => {
     }
     return questions;
   }
+  // Estimate rotation from long printed rows, then match their ORDER and spacing.
+  // Page margins are deliberately excluded: the content can be scaled inside the page.
+  function gridRegistration(small,reference){
+    const w=small.width,h=small.height,cx=w/2,cy=h/2;
+    const g=gray(small.getContext('2d').getImageData(0,0,w,h).data),pixels=[];
+    for(let y=8;y<h-8;y++)for(let x=8;x<w-8;x++)if(g[y*w+x]<220)pixels.push([x-cx,y-cy]);
+    function strength(angle){
+      const r=angle*Math.PI/180,s=Math.sin(r),c=Math.cos(r),bins=new Uint32Array(h+200);
+      for(const [x,y] of pixels){const k=Math.round(-s*x+c*y+cy+100);if(k>=0&&k<bins.length)bins[k]++;}
+      const peaks=[];
+      for(let y=2;y<bins.length-2;y++)if(bins[y]>w*.25&&bins[y]>=bins[y-1]&&bins[y]>=bins[y+1])peaks.push({y,n:bins[y]});
+      peaks.sort((a,b)=>b.n-a.n);const used=[];
+      for(const p of peaks)if(!used.some(q=>Math.abs(q.y-p.y)<5))used.push(p);
+      return used.slice(0,reference.length+3).reduce((v,p)=>v+p.n*p.n,0);
+    }
+    let angle=0,best=-1;
+    for(let a=-7;a<=7;a+=.25){const value=strength(a);if(value>best){best=value;angle=a;}}
+    const coarse=angle;
+    for(let a=coarse-.25;a<=coarse+.25;a+=.05){const value=strength(a);if(value>best){best=value;angle=a;}}
+    const deskew=canvas(w,h),ctx=deskew.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);
+    ctx.translate(cx,cy);ctx.rotate(-angle*Math.PI/180);ctx.translate(-cx,-cy);ctx.drawImage(small,0,0);
+    const dg=gray(ctx.getImageData(0,0,w,h).data),joined=dg.slice();
+    // A thin rule can land between raster rows after rotation/downsampling.
+    for(let y=1;y<h-1;y++)for(let x=0;x<w;x++){const i=y*w+x;joined[i]=Math.min(dg[i-w],dg[i],dg[i+w]);}
+    const rows=[...lines(joined,w,h,.28,225),...lines(joined,w,h,.28,245)].sort((a,b)=>a.y-b.y);
+    // Keep the longest version of each row when faint rules need a softer threshold.
+    for(let i=rows.length-1;i>0;i--)if(rows[i].y-rows[i-1].y<2){
+      if(rows[i].x2-rows[i].x1>rows[i-1].x2-rows[i-1].x1)rows[i-1]=rows[i];
+      rows.splice(i,1);
+    }
+    const ref=reference.filter(r=>r.y>15&&r.y<h-15);
+    if(ref.length<4||rows.length<4)return null;
+    const matches=(scale,offset)=>{
+      const pairs=[];let last=-1;
+      for(const t of ref){let index=-1,error=3;
+        for(let j=last+1;j<rows.length;j++){const e=Math.abs(rows[j].y-(scale*t.y+offset));if(e<error){error=e;index=j;}}
+        if(index>=0){pairs.push([t,rows[index]]);last=index;}
+      }
+      return pairs;
+    };
+    const hypotheses=[];
+    for(let i=0;i<ref.length;i++)for(let j=i+1;j<ref.length;j++){
+      if(ref[j].y-ref[i].y<h*.3)continue;
+      for(let k=0;k<rows.length;k++)for(let l=k+1;l<rows.length;l++){
+        const sy=(rows[l].y-rows[k].y)/(ref[j].y-ref[i].y),oy=rows[k].y-sy*ref[i].y;
+        if(sy<.55||sy>1.6||Math.abs(oy+(sy-1)*cy)>230)continue;
+        const pairs=matches(sy,oy);
+        if(pairs.length>=Math.max(4,Math.ceil(ref.length*.8)))hypotheses.push({pairs,sy,oy});
+      }
+    }
+    const median=values=>{values.sort((a,b)=>a-b);return values[Math.floor(values.length/2)];};
+    let result=null;
+    for(const candidate of hypotheses){
+      const {pairs}=candidate,n=pairs.length;
+      const my=pairs.reduce((s,p)=>s+p[0].y,0)/n,ms=pairs.reduce((s,p)=>s+p[1].y,0)/n;
+      const sy=pairs.reduce((s,p)=>s+(p[0].y-my)*(p[1].y-ms),0)/pairs.reduce((s,p)=>s+(p[0].y-my)**2,0),oy=ms-sy*my;
+      const sx=median(pairs.map(([t,s])=>(s.x2-s.x1)/(t.x2-t.x1)));
+      const ox=median(pairs.flatMap(([t,s])=>[s.x1-sx*t.x1,s.x2-sx*t.x2]));
+      if(sx<.55||sx>1.6||Math.abs(ox+(sx-1)*cx)>230)continue;
+      const complete=pairs.filter(([t,s])=>Math.abs(s.x1-sx*t.x1-ox)<4&&Math.abs(s.x2-sx*t.x2-ox)<4);
+      if(complete.length<Math.max(4,Math.ceil(ref.length*.6)))continue;
+      const error=pairs.reduce((sum,[t,s])=>sum+Math.abs(s.y-sy*t.y-oy),0)/n+complete.reduce((sum,[t,s])=>sum+.25*(Math.abs(s.x1-sx*t.x1-ox)+Math.abs(s.x2-sx*t.x2-ox)),0)/complete.length;
+      const span=(pairs.at(-1)[0].y-pairs[0][0].y)/(ref.at(-1).y-ref[0].y);
+      if(error>2||span<.8)continue;
+      const rank=error+(ref.length-n)*2;
+      if(!result||rank<result.rank){
+        const r=angle*Math.PI/180,c=Math.cos(r),s=Math.sin(r),tx=ox+(sx-1)*cx,ty=oy+(sy-1)*cy;
+        result={rank,p:[sx*c,sx*s,-sy*s,sy*c,c*tx-s*ty,s*tx+c*ty],pairs:complete,angle,error};
+      }
+    }
+    return result;
+  }
   function align(src,template,schema){
     const questions=answerQuestions(schema);
     // Match printed grid lines; question wording and handwriting are excluded from registration.
     const size=620,ratio=size/W,h=Math.round(H*ratio);
     const small=canvas(size,h);small.getContext('2d').drawImage(src,0,0,size,h);
-    const sg=gray(small.getContext('2d').getImageData(0,0,size,h).data),dist=distance(sg,size,h);
+    const sg=gray(small.getContext('2d').getImageData(0,0,size,h).data),dist=distance(sg,size,h,235);
     const tg=gray(template.getContext('2d').getImageData(0,0,W,H).data),rr=lines(tg,W,H);
+    const grid=gridRegistration(small,rr.map(r=>({y:r.y*ratio,x1:r.x1*ratio,x2:r.x2*ratio})));
     let points=[];
     for(const r of rr){
       if(r.y<40||r.y>H-40)continue;
@@ -174,13 +247,23 @@ const SurveyEngine = (() => {
     if(points.length<50){
       points=[];for(let y=60;y<H-70;y+=12)for(let x=50;x<W-50;x+=12)if(tg[y*W+x]<140)points.push([(x-W/2)*ratio,(y-H/2)*ratio]);
     }
-    function score(p){
+    function score(p,withGrid=true){
       let sum=0;const [a,b,c,d,tx,ty]=p;
       for(const [x,y] of points){const xx=Math.round(a*x+c*y+size/2+tx),yy=Math.round(b*x+d*y+h/2+ty);sum+=xx<1||yy<1||xx>=size-1||yy>=h-1?20:Math.min(20,dist[yy*size+xx]);}
-      return sum/Math.max(1,points.length);
+      let value=sum/Math.max(1,points.length);
+      if(grid&&withGrid){
+        const r=grid.angle*Math.PI/180,cs=Math.cos(r),sn=Math.sin(r);let error=0;
+        for(const [t,s] of grid.pairs)for(const x of [t.x1,t.x2]){
+          const px=a*(x-size/2)+c*(t.y-h/2)+tx,py=b*(x-size/2)+d*(t.y-h/2)+ty;
+          error+=Math.abs(-sn*px+cs*py+h/2-s.y)+.25*Math.abs(cs*px+sn*py+size/2-(x===t.x1?s.x1:s.x2));
+        }
+        value+=error/(grid.pairs.length*2);
+      }
+      return value;
     }
     // Keep several starting poses: a large translation can otherwise settle on a neighbouring table row.
     const seeds=[];
+    if(grid)seeds.push({p:grid.p,score:score(grid.p)});
     for(const angle of [-3,-1.5,0,1.5,3])for(const scale of [.96,1,1.04])for(const dx of [-72,-36,0,36,72])for(const dy of [-72,-36,0,36,72]){
       const r=angle*Math.PI/180,p=[scale*Math.cos(r),scale*Math.sin(r),-scale*Math.sin(r),scale*Math.cos(r),dx,dy];seeds.push({p,score:score(p)});
     }
@@ -193,7 +276,8 @@ const SurveyEngine = (() => {
         let changed=false;
         for(let j=0;j<6;j++)for(const sign of [-1,1]){
           const p=candidate.p.slice();p[j]+=sign*(j<4?step:step*700);
-          if(p[0]<.85||p[0]>1.15||p[3]<.85||p[3]>1.15||Math.abs(p[1])>.12||Math.abs(p[2])>.12||Math.abs(p[4])>110||Math.abs(p[5])>110)continue;
+          const lo=grid ? .55 : .85,hi=grid ? 1.6 : 1.15,shift=grid ? 230 : 110,tilt=grid ? .22 : .12;
+          if(p[0]<lo||p[0]>hi||p[3]<lo||p[3]>hi||Math.abs(p[1])>tilt||Math.abs(p[2])>tilt||Math.abs(p[4])>shift||Math.abs(p[5])>shift)continue;
           const value=score(p);if(value<candidate.score){candidate={p,score:value};changed=true;}
         }
         if(!changed)break;
@@ -205,8 +289,9 @@ const SurveyEngine = (() => {
     const inverse=new DOMMatrix(transform).inverse(),out=canvas(),ctx=out.getContext('2d');
     ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);ctx.setTransform(inverse);ctx.drawImage(src,0,0);
     const angle=Math.atan2(b,a)*180/Math.PI;
-    const atLimit=a<.855||a>1.145||d<.855||d>1.145||Math.abs(b)>.115||Math.abs(c)>.115||Math.abs(tx)>109||Math.abs(ty)>109;
-    return {canvas:out,meta:{score:best.score,angle,dx,dy,scaleX:Math.hypot(a,b),scaleY:Math.hypot(c,d),lowQuality:best.score>1.1||atLimit||points.length<50,atLimit,transform}};
+    const atLimit=grid?(a<.555||a>1.595||d<.555||d>1.595||Math.abs(tx)>229||Math.abs(ty)>229):(a<.855||a>1.145||d<.855||d>1.145||Math.abs(b)>.115||Math.abs(c)>.115||Math.abs(tx)>109||Math.abs(ty)>109);
+    const printError=score(best.p,false);
+    return {canvas:out,meta:{score:printError,angle,dx,dy,scaleX:Math.hypot(a,b),scaleY:Math.hypot(c,d),method:grid?'grid':'ink',matchedRows:grid?.pairs.length||0,lowQuality:printError>1.1||atLimit||points.length<50,atLimit,transform}};
   }
   // Estimate local paper brightness so grey scan backgrounds do not become handwriting.
   function paperCorrect(g){
